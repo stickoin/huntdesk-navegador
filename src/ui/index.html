@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+<title>HuntDesk</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<header id="topo">
+  <div id="linha">
+    <div class="grupo">
+      <span class="marca">HuntDesk <span class="tag" id="versao"></span></span>
+      <label class="rotulo">Layout <select id="layout" title="Cada layout guarda quais contas aparecem e como"></select></label>
+      <div class="alternar" role="group" aria-label="Arrumação">
+        <button data-modo="grade" title="Todas as contas do layout lado a lado">Grade</button>
+        <button data-modo="abas" title="Uma conta de cada vez; troque pelos botões das contas ou Ctrl+1, Ctrl+2…">Abas</button>
+      </div>
+      <label class="rotulo" id="rotulo-colunas">Colunas
+        <select id="colunas">
+          <option value="0">Auto</option><option value="1">1</option><option value="2">2</option>
+          <option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        </select>
+      </label>
+    </div>
+    <div id="chips" class="grupo"></div>
+    <div class="grupo direita">
+      <span id="total" class="nota"></span>
+      <button data-painel="medicoes">Medições</button>
+      <button data-painel="contas">Contas</button>
+      <button data-painel="layouts">Layouts</button>
+      <button data-painel="config">Configurações</button>
+    </div>
+  </div>
+  <div id="alerta-total" class="faixa-alerta" hidden></div>
+  <div id="faixa-versao" class="faixa-info" hidden></div>
+  <section id="painel" hidden></section>
+</header>
+<div id="celulas"></div>
+<div id="vazio" hidden>
+  <p>Nenhuma conta na tela.</p>
+  <p class="nota">Clique numa conta lá em cima para mostrá-la, ou abra <b>Contas</b> para adicionar uma.</p>
+</div>
+<script src="ui.js"></script>
+</body>
+</html>

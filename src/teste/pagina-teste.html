@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Página de teste do P0</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #101318; color: #ddd; font: 14px "Segoe UI", sans-serif; }
+  canvas { display: block; width: 100%; height: calc(100% - 60px); }
+  p { margin: 8px 12px; }
+</style>
+</head>
+<body>
+<p id="info"></p>
+<canvas id="tela"></canvas>
+<script>
+// Imita um jogo que vaza memória: a cada quadro desenhado guarda um pedaço de memória e nunca solta.
+// Serve para testar o medidor sem o jogo: escondida e com freio, a página para de desenhar e de crescer.
+// Com ?vazar=sempre (teste da guarda), também guarda memória pelo relógio, desenhando ou não.
+const params = new URLSearchParams(location.search);
+const conta = params.get('conta') || '?';
+const tela = document.getElementById('tela');
+const ctx = tela.getContext('2d');
+const vazamento = [];
+const LIMITE = 300; // MB, para o teste não pesar o PC
+let quadros = 0;
+function quadro(t) {
+  tela.width = tela.clientWidth; tela.height = tela.clientHeight;
+  ctx.fillStyle = '#d9a441';
+  const x = (Math.sin(t / 700) * 0.45 + 0.5) * tela.width;
+  ctx.beginPath(); ctx.arc(x, tela.height / 2, 30, 0, Math.PI * 2); ctx.fill();
+  if (vazamento.length * 0.02 < LIMITE) vazamento.push(new Uint8Array(20000).fill(quadros & 255));
+  quadros++;
+  requestAnimationFrame(quadro);
+}
+requestAnimationFrame(quadro);
+if (params.get('vazar') === 'sempre') {
+  setInterval(() => { if (vazamento.length * 0.02 < LIMITE) for (let i = 0; i < 15; i++) vazamento.push(new Uint8Array(20000).fill(i)); }, 100);
+}
+setInterval(() => {
+  document.getElementById('info').textContent = `${conta} · página de teste · ${quadros} quadros · ${(vazamento.length * 0.02).toFixed(0)} MB guardados · ${document.visibilityState}`;
+}, 500);
+</script>
+</body>
+</html>

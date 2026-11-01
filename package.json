@@ -1,0 +1,75 @@
+{
+  "name": "huntdesk-navegador",
+  "productName": "HuntDesk",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Navegador do HuntDesk para jogos idle: várias contas lado a lado, cada uma com o login separado, com controle de memória. Só organiza e mede; nunca joga.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "teste": "electron . --teste",
+    "autoteste": "electron . --autoteste",
+    "autoteste:guarda": "electron . --autoteste-guarda",
+    "resumo": "node ferramentas/resumo.js",
+    "instalador": "electron-builder --win nsis",
+    "autoteste:alivio": "electron . --autoteste-alivio",
+    "experimento:alivio": "electron . --experimento-alivio",
+    "experimento:economico": "electron . --economico",
+    "loja": "electron-builder --win appx",
+    "github": "node ferramentas/publicar-github.js"
+  },
+  "devDependencies": {
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0"
+  },
+  "author": "Mauricio",
+  "license": "MIT",
+  "build": {
+    "appId": "br.com.huntdesk.navegador",
+    "productName": "HuntDesk",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "src/ui/icone.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "shortcutName": "HuntDesk",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "HuntDesk-Instalador-${version}.${ext}"
+    },
+    "appx": {
+      "identityName": "TROCAR.HuntDesk",
+      "publisher": "CN=TROCAR",
+      "publisherDisplayName": "HuntDesk",
+      "displayName": "HuntDesk",
+      "applicationId": "HuntDesk",
+      "backgroundColor": "#14161b",
+      "languages": [
+        "pt-BR"
+      ],
+      "artifactName": "HuntDesk-Loja-${version}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "stickoin",
+        "repo": "huntdesk-navegador",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
+  }
+}
