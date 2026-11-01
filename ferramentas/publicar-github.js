@@ -46,6 +46,8 @@ if (anterior && git(['rev-parse', `${anterior}^{tree}`]) === arvore) {
 }
 
 if (!semEnviar) {
-  execFileSync('git', ['push', 'origin', `${RAMO}:refs/heads/main`], { cwd: RAIZ, stdio: 'inherit' });
+  // Usa o acesso do programa do GitHub (gh) já conectado neste PC, em vez de abrir uma janela de login.
+  execFileSync('git', ['-c', 'credential.helper=', '-c', 'credential.helper=!gh auth git-credential',
+    'push', 'origin', `${RAMO}:refs/heads/main`], { cwd: RAIZ, stdio: 'inherit', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
   console.log('Enviado para o GitHub.');
 }
