@@ -13,6 +13,8 @@
     "resumo": "node ferramentas/resumo.js",
     "instalador": "electron-builder --win nsis",
     "autoteste:alivio": "electron . --autoteste-alivio",
+    "autoteste:quadros": "electron . --autoteste-quadros --quadros=30",
+    "experimento:quadros": "electron . --economico --quadros=30",
     "experimento:alivio": "electron . --experimento-alivio",
     "experimento:economico": "electron . --economico",
     "loja": "electron-builder --win appx",
@@ -49,8 +51,8 @@
       "artifactName": "HuntDesk-Instalador-${version}.${ext}"
     },
     "appx": {
-      "identityName": "TROCAR.HuntDesk",
-      "publisher": "CN=TROCAR",
+      "identityName": "HuntDesk.HuntDesk",
+      "publisher": "CN=8247790D-A076-4CAB-A0E5-55E5AECDEFAF",
       "publisherDisplayName": "HuntDesk",
       "displayName": "HuntDesk",
       "applicationId": "HuntDesk",

@@ -33,6 +33,7 @@ function padrao() {
     guarda: { limiteMb: LIMITE_NORMAL, acao: 'avisar', avisoTotalMb: 0, notificacoes: true },
     abrirAoIniciar: true, // false = as contas esperam o jogador apertar Ligar
     economico: false, // modo do Chrome para computador fraco: menos memória, imagem um pouco mais simples
+    visual: { lateral: true, faixas: true }, // lateral aberta (false = só as siglas) e faixa em cima de cada conta
   };
 }
 
@@ -92,6 +93,7 @@ function limpar(bruto) {
     url: enderecoValido(c.url) ? c.url : JOGO_PADRAO,
     freio: c.freio !== false,
     ligada: c.ligada !== false,
+    mudo: c.mudo === true, // som desligado só nesta conta
   }));
   const ids = new Set(cfg.contas.map((c) => c.id));
   const layoutsVistos = new Set();
@@ -119,6 +121,8 @@ function limpar(bruto) {
   if (!(bruto.versao >= 2) && cfg.guarda.limiteMb === 3072) cfg.guarda.limiteMb = LIMITE_NORMAL;
   cfg.abrirAoIniciar = bruto.abrirAoIniciar !== false;
   cfg.economico = bruto.economico === true;
+  const v = bruto.visual || {};
+  cfg.visual = { lateral: v.lateral !== false, faixas: v.faixas !== false };
   const j = bruto.janela;
   if (j && [j.width, j.height].every((n) => Number.isInteger(n) && n >= 400)) {
     cfg.janela = { width: j.width, height: j.height, x: Number.isInteger(j.x) ? j.x : undefined, y: Number.isInteger(j.y) ? j.y : undefined, maximizada: !!j.maximizada };

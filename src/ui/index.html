@@ -7,40 +7,43 @@
 <link rel="stylesheet" href="estilo.css">
 </head>
 <body>
-<header id="topo">
-  <div id="linha">
-    <div class="grupo">
-      <span class="marca">HuntDesk <span class="tag" id="versao"></span></span>
-      <label class="rotulo">Layout <select id="layout" title="Cada layout guarda quais contas aparecem e como"></select></label>
-      <div class="alternar" role="group" aria-label="Arrumação">
-        <button data-modo="grade" title="Todas as contas do layout lado a lado">Grade</button>
-        <button data-modo="abas" title="Uma conta de cada vez; troque pelos botões das contas ou Ctrl+1, Ctrl+2…">Abas</button>
-      </div>
-      <label class="rotulo" id="rotulo-colunas">Colunas
-        <select id="colunas">
-          <option value="0">Auto</option><option value="1">1</option><option value="2">2</option>
-          <option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option>
-        </select>
-      </label>
+<div id="app">
+  <aside id="lado">
+    <div class="marca"><img src="icone.png" alt=""><span class="some">HuntDesk</span></div>
+    <div id="lista"></div>
+    <button class="mais" data-abrir="contas" title="Adicionar uma conta nova"><span class="some">+ Adicionar conta</span><span class="so-recolhida">+</span></button>
+    <button class="recolher" id="recolher" title="Recolher ou abrir esta barra (Ctrl+B)"><span id="seta">«</span> <span class="some">Recolher</span></button>
+  </aside>
+  <main id="area">
+    <div id="vazio" hidden>
+      <p>Nenhuma conta na tela.</p>
+      <p class="nota">Clique numa conta na barra ao lado e escolha <b>Mostrar na tela</b>.</p>
     </div>
-    <div id="chips" class="grupo"></div>
-    <div class="grupo direita">
-      <span id="total" class="nota"></span>
-      <button data-painel="medicoes">Medições</button>
-      <button data-painel="contas">Contas</button>
-      <button data-painel="layouts">Layouts</button>
-      <button data-painel="config">Configurações</button>
-    </div>
-  </div>
-  <div id="alerta-total" class="faixa-alerta" hidden></div>
-  <div id="faixa-versao" class="faixa-info" hidden></div>
-  <section id="painel" hidden></section>
-</header>
-<div id="celulas"></div>
-<div id="vazio" hidden>
-  <p>Nenhuma conta na tela.</p>
-  <p class="nota">Clique numa conta lá em cima para mostrá-la, ou abra <b>Contas</b> para adicionar uma.</p>
+  </main>
+  <footer id="baixo">
+    <button class="saude" id="saude"></button>
+    <span class="sep"></span>
+    <span class="junto" role="group" aria-label="Arrumação">
+      <button data-modo="grade" title="Todas as contas do layout lado a lado">Grade</button>
+      <button data-modo="abas" title="Uma conta de cada vez; troque pela janelinha da conta ou Ctrl+1, Ctrl+2…">Abas</button>
+    </span>
+    <select id="colunas" title="Colunas da grade">
+      <option value="0">Colunas: auto</option><option value="1">1 coluna</option><option value="2">2 colunas</option>
+      <option value="3">3 colunas</option><option value="4">4 colunas</option><option value="5">5 colunas</option><option value="6">6 colunas</option>
+    </select>
+    <select id="layout" title="Layout salvo: quais contas aparecem e como"></select>
+    <span class="sep"></span>
+    <button id="economia" title="Modo do Chrome para computador fraco: cada conta gasta bem menos memória e a imagem fica um pouco mais simples. Trocar fecha e abre o programa."></button>
+    <span class="nota" id="total"></span>
+    <span class="espaco"></span>
+    <button id="reiniciar" class="forte" hidden></button>
+    <button id="faixas" title="Mostrar ou esconder a faixa com o nome em cima de cada conta"></button>
+    <button id="cheia" title="Tela cheia (F11)"></button>
+    <button id="abrir-menu" title="Medições, contas, layouts e configurações">Menu ▴</button>
+  </footer>
 </div>
+<div id="celulas"></div>
+<script src="comum.js"></script>
 <script src="ui.js"></script>
 </body>
 </html>

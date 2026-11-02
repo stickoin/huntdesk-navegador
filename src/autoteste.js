@@ -19,7 +19,7 @@ async function ate(cond, prazoSeg) {
   return cond();
 }
 
-async function telas({ acao, medidor, estado, conferir }) {
+async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar }) {
   const naTela = () => estado().celulas.map((c) => c.id).join(',');
   await espera(15);
   acao('conta:adicionar', { nome: 'Conta 3' });
@@ -61,21 +61,63 @@ async function telas({ acao, medidor, estado, conferir }) {
   acao('guarda:config', { limiteMb: 700 });
   acao('config:economico', { ligado: false });
   conferir('limite escolhido pelo jogador fica', !cfg().economico && cfg().guarda.limiteMb === 700, String(cfg().guarda.limiteMb));
+
+  // Som, faixas, janelinhas por cima das contas e conta que caiu (o layout 1 ficou em abas lá em cima).
+  acao('layout:modo', { modo: 'grade' });
+  const v1 = () => estado().vivas.get('conta1');
+  acao('conta:som', { id: 'conta1', ligado: false });
+  conferir('som desligado só nesta conta', v1().view.webContents.isAudioMuted() && !estado().vivas.get('conta2').view.webContents.isAudioMuted());
+  acao('conta:som', { id: 'conta1', ligado: true });
+  conferir('som volta', !v1().view.webContents.isAudioMuted());
+  const cel1 = () => estado().celulas.find((c) => c.id === 'conta1');
+  conferir('com a faixa o jogo fica abaixo dela', v1().view.getBounds().y === cel1().y + 25, `${v1().view.getBounds().y} / ${cel1().y}`);
+  acao('visual:faixas');
+  conferir('sem a faixa o jogo ocupa o quadro', v1().view.getBounds().y === cel1().y + 1, `${v1().view.getBounds().y} / ${cel1().y}`);
+  await foto(janela, 'sem-faixas');
+  acao('visual:faixas');
+  const largura = cel1().width;
+  acao('visual:lateral');
+  await espera(1);
+  conferir('lateral recolhida deixa as contas mais largas', cel1().width > largura, `${largura} → ${cel1().width}`);
+  acao('visual:lateral');
+  await espera(1);
+  const filhos = () => janela.contentView.children;
+  // Clique no cartão da lateral, como o jogador faz.
+  await janela.webContents.executeJavaScript("document.querySelector('[data-cartao=conta1]').click()");
+  conferir('clicar no cartão abre a janelinha por cima das contas', await ate(() => filhos()[filhos().length - 1] === estado().sobre, 5));
+  estado().sobre.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+  conferir('Esc fecha a janelinha', await ate(() => !filhos().includes(estado().sobre), 5));
+  abrir({ tipo: 'conta', id: 'conta1', x: 200, y: 60 });
+  await foto(janela, 'grade');
+  await foto(janela, 'janelinha', estado().sobre.webContents);
+  acao('conta:mostrar', { id: 'conta2' });
+  conferir('janelinha continua por cima depois de mexer nas contas', filhos()[filhos().length - 1] === estado().sobre);
+  fechar();
+  abrir({ tipo: 'painel', painel: 'medicoes' });
+  await foto(janela, 'medicoes', estado().sobre.webContents);
+  fechar();
+  conferir('fechar tira a camada', !filhos().includes(estado().sobre));
+  v1().view.webContents.forcefullyCrashRenderer();
+  conferir('conta que caiu sai da frente', await ate(() => v1().estado === 'caiu', 10) && !v1().view.getVisible(), v1().estado);
+  await foto(janela, 'caiu');
+  acao('conta:recarregar', { id: 'conta1' });
+  conferir('recarregar traz a conta de volta', await ate(() => v1().estado === 'ok', 20) && v1().view.getVisible(), v1().estado);
 }
 
-// Foto só da barra e das faixas do programa (as páginas das contas não aparecem nela), para conferir o visual.
-async function foto(janela, nome) {
+// Foto da barra e das faixas do programa (as páginas das contas não aparecem nela), ou da camada das janelinhas
+// (wc = estado().sobre.webContents), para conferir o visual.
+async function foto(janela, nome, wc = janela.webContents) {
   // Janela coberta por outras não se redesenha; traz para a frente sem tirar o teclado de quem está usando o PC.
   janela.showInactive();
   janela.moveTop();
   await espera(1.5);
-  const img = await janela.webContents.capturePage();
+  const img = await wc.capturePage();
   const f = path.join(app.getPath('temp'), `huntdesk-autoteste-${nome}.png`);
   fs.writeFileSync(f, img.toPNG());
   console.log('autoteste: foto', f);
 }
 
-async function guarda({ acao, estado, conferir, janela }) {
+async function guarda({ acao, estado, conferir, janela, abrir, fechar }) {
   // A página de teste guarda ~3 MB por segundo de memória; o limite baixo faz a guarda agir logo. Sem freio, o relógio
   // dela corre normal mesmo com a janela escondida.
   acao('conta:freio', { id: 'conta1', ligado: false });
@@ -88,10 +130,10 @@ async function guarda({ acao, estado, conferir, janela }) {
   conferir('no modo avisar, não recarrega', alertas().conta1 && !alertas().conta1.recarregada);
   await espera(1);
   await foto(janela, 'aviso');
-  await janela.webContents.executeJavaScript("document.querySelector('[data-painel=config]').click()");
+  abrir({ tipo: 'painel', painel: 'config' });
   await espera(1);
-  await foto(janela, 'configuracoes');
-  await janela.webContents.executeJavaScript("document.querySelector('[data-painel=config]').click()");
+  await foto(janela, 'configuracoes', estado().sobre.webContents);
+  fechar();
   acao('guarda:config', { acao: 'recarregar' });
   acao('guarda:dispensar', { id: 'conta1' });
   acao('guarda:dispensar', { id: 'conta2' });
@@ -119,13 +161,30 @@ async function alivio({ acao, estado, medidor, conferir }) {
   conferir('a página continua a mesma', estado().vivas.get('conta1').view.webContents.getURL() === antes);
 }
 
+// Quadros: com a janela na frente, anota quantos quadros por segundo cada conta desenha (rodar com e sem --quadros=30:
+// npm run autoteste:quadros).
+async function quadros({ medidor, conferir, janela }) {
+  // Pequena e por cima de tudo, num canto: coberta por outra janela, o Chrome a trata como escondida e não desenha.
+  janela.setBounds({ x: 0, y: 0, width: 900, height: 500 });
+  janela.setAlwaysOnTop(true);
+  janela.showInactive();
+  await espera(25);
+  const contas = Object.entries((medidor.ultima && medidor.ultima.contas) || {});
+  const n = (x) => (x == null ? '-' : x.toFixed(0));
+  const fps = contas.map(([id, u]) => `${id}: tela ${n(u.fps)}, jogo ${n(u.fpsJogo)}`).join('; ');
+  conferir('quadros por segundo medidos', contas.some(([, u]) => u.fps > 0), fps);
+  const limite = Number((process.argv.find((a) => a.startsWith('--quadros=')) || '').split('=')[1]) || 0;
+  if (limite) conferir(`jogo desenha perto de ${limite} por segundo`, contas.every(([, u]) => u.fpsJogo > limite * 0.8 && u.fpsJogo <= limite * 1.05), fps);
+  else conferir('sem o experimento nada é limitado', contas.every(([, u]) => u.fpsJogo == null), fps);
+}
+
 function rodar(cenario, ctx) {
   const resultados = [];
   const conferir = (nome, ok, detalhe) => {
     resultados.push(!!ok);
     console.log(`autoteste: ${ok ? 'ok    ' : 'FALHOU'} ${nome}${detalhe ? ' — ' + detalhe : ''}`);
   };
-  const fn = { telas, guarda, alivio }[cenario];
+  const fn = { telas, guarda, alivio, quadros }[cenario];
   if (!fn) { console.log('autoteste: cenário desconhecido:', cenario); return ctx.sair(); }
   console.log(`autoteste: cenário "${cenario}"`);
   fn({ ...ctx, conferir })

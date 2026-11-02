@@ -30,7 +30,8 @@ se você apertar **Reiniciar agora**.
 
 ## Seus dados
 
-- Logins, configurações e medições ficam só no seu computador, em `%APPDATA%\HuntDesk Navegador`.
+- Logins e configurações ficam só no seu computador, em `%APPDATA%\HuntDesk Navegador`. As medições de memória
+  aparecem na tela, mas não são gravadas em arquivo.
 - Desinstalar o programa **não apaga** essa pasta. Em **Configurações > Sobre** há um botão para abri-la.
 - O programa não envia nada para nenhum servidor. Para saber se há versão nova, ele consulta a página de versões do
   projeto no GitHub.
@@ -48,7 +49,7 @@ npm run autoteste:alivio   # confere o "aliviar memória"
 npm run instalador         # gera o instalador em dist/
 ```
 
-Rodando pelo projeto, as medições ficam em `medicoes/`. Para resumir as medições, rode `npm run resumo`.
+Só rodando pelo projeto as medições são gravadas, em `medicoes/` (o programa instalado não grava nenhuma). Para resumir as medições, rode `npm run resumo`.
 
 ## Licença
 

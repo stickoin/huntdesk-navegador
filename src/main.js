@@ -5,8 +5,8 @@
 // jogo — toda ação sai de um botão ou atalho apertado pelo jogador.
 
 const path = require('node:path');
-const { app, BrowserWindow, WebContentsView, Menu, Notification, ipcMain, session, shell } = require('electron');
-const { Medidor } = require('./medidor');
+const { app, BrowserWindow, WebContentsView, Menu, Notification, ipcMain, nativeTheme, session, shell } = require('electron');
+const { Medidor, apagarPastaAntiga } = require('./medidor');
 const { Guarda } = require('./guarda');
 const { Atualizador } = require('./atualizador');
 const config = require('./config');
@@ -16,8 +16,9 @@ const CENARIO = (ARGS.find((a) => a.startsWith('--autoteste')) || '').replace(/^
 const AUTOTESTE = ARGS.some((a) => a.startsWith('--autoteste'));
 const TESTE = AUTOTESTE || ARGS.includes('--teste');
 const PAGINA_TESTE = path.join(__dirname, 'teste', 'pagina-teste.html');
-const CABECALHO = 28; // faixa com o nome e os botões em cima de cada conta
+const FAIXA = 24; // faixa com o nome e os botões em cima de cada conta (o jogador pode esconder)
 const VAO = 4; // espaço entre as contas
+const PAINEIS = ['medicoes', 'contas', 'layouts', 'config'];
 
 // O Chrome arredonda a memória do JavaScript que a página informa; com esta opção vem o número exato.
 app.commandLine.appendSwitch('enable-precise-memory-info');
@@ -30,6 +31,9 @@ else app.setPath('userData', path.join(app.getPath('appData'), 'HuntDesk Navegad
 // como comparação; --economico liga o modo econômico mesmo desligado nas Configurações; --diagnostico anota o que cada
 // página tem (ver diagnosticar).
 const EXPERIMENTO_ALIVIO = ARGS.includes('--experimento-alivio');
+// Experimento: --quadros=30 faz o jogo desenhar no máximo 30 quadros por segundo (ver quadros.js). A opção do Chrome
+// limit-fps não serve: no Electron ela não limita as páginas.
+const QUADROS = Number((ARGS.find((a) => a.startsWith('--quadros=')) || '').split('=')[1]) || 0;
 
 let cfg = config.carregar(); // contas e layouts (config.json)
 // Modo econômico: o modo do Chrome para computador fraco (menos memória, imagem um pouco mais simples). Só vale ao abrir o
@@ -42,9 +46,13 @@ let medidor = null;
 let guarda = null;
 let atualizador = null;
 const avisosAbertos = new Set(); // notificações do Windows na tela (sem referência, o Windows as perde)
-let topo = 48; // altura da barra de cima, informada pela própria barra
+let area = null; // espaço das contas (entre a lateral e a barra de baixo), informado pela própria barra
 let foco = null; // última conta clicada: o F5 recarrega só ela
 let celulas = [];
+let sobre = null; // camada das janelinhas (detalhes da conta e painéis), posta por cima das contas
+let sobreAberto = null; // o que está aberto nela: { tipo: 'conta', id, x, y } | { tipo: 'painel', painel } | null
+const series = new Map(); // id da conta → últimas 30 medições [MB, % processador], para os gráficos da janelinha
+const historicos = new Map(); // id da conta → últimos eventos [quando, nota], para o histórico da janelinha
 
 const conta = (id) => cfg.contas.find((c) => c.id === id);
 const layoutAtual = () => cfg.layouts.find((l) => l.id === cfg.layoutAtual) || cfg.layouts[0];
@@ -61,12 +69,16 @@ function ligarConta(c) {
   const particao = 'persist:' + c.id; // "persist:" = cookies e login guardados entre aberturas, um cofre por conta
   session.fromPartition(particao).setPermissionRequestHandler(permitir);
   const view = new WebContentsView({
-    webPreferences: { partition: particao, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: c.freio },
+    webPreferences: {
+      partition: particao, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: c.freio,
+      ...(QUADROS ? { preload: path.join(__dirname, 'quadros.js'), additionalArguments: ['--huntdesk-quadros=' + QUADROS] } : {}),
+    },
   });
-  view.setBackgroundColor('#101318');
-  const v = { view, estado: 'carregando', presa: false };
+  view.setBackgroundColor('#0a0c11');
+  const v = { view, estado: 'carregando', presa: false, desde: Date.now() };
   vivas.set(c.id, v);
   const wc = view.webContents;
+  wc.setAudioMuted(!!c.mudo);
   wc.setWindowOpenHandler(({ url }) => {
     // Janela que o jogo pede (login, termos) abre com a mesma conta; o Chrome só deixa abrir com um clique do jogador.
     if (/^https?:/i.test(url)) return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true } };
@@ -99,9 +111,12 @@ function desligarConta(id) {
 function mudarEstado(id, estado, nota) {
   const v = vivas.get(id);
   if (!v || v.estado === estado) return;
+  const antes = v.estado;
   v.estado = estado;
   medidor.evento(id, 'estado: ' + estado + (nota ? ' (' + nota + ')' : ''));
-  enviarEstado();
+  // A página que caiu sai da frente para aparecer o aviso com "Recarregar agora"; volta quando recarregar.
+  if (antes === 'caiu' || estado === 'caiu') arrumar();
+  else enviarEstado();
 }
 
 // ---------- arrumação na janela ----------
@@ -117,7 +132,9 @@ function naTela() {
 
 function grade(n, largura, altura, colunas) {
   if (!n) return [];
-  const cols = colunas > 0 ? Math.min(colunas, n) : Math.ceil(Math.sqrt(n));
+  // Auto: quase quadrado; com o monitor em pé, mais linhas que colunas.
+  const lado = Math.ceil(Math.sqrt(n));
+  const cols = colunas > 0 ? Math.min(colunas, n) : largura >= altura ? lado : Math.ceil(n / lado);
   const linhas = Math.ceil(n / cols);
   const cw = (largura - VAO * (cols - 1)) / cols;
   const ch = (altura - VAO * (linhas - 1)) / linhas;
@@ -133,9 +150,13 @@ function grade(n, largura, altura, colunas) {
 function arrumar() {
   if (!win) return;
   const [largura, altura] = win.getContentSize();
+  // Até a barra informar o espaço, conta com a lateral (200 px aberta, 56 recolhida) e a barra de baixo (36 px).
+  const lat = cfg.visual.lateral ? 200 : 56;
+  const a = area || { x: lat, y: 0, width: largura - lat, height: altura - 36 };
   const ids = naTela();
-  const caixas = grade(ids.length, largura, Math.max(0, altura - topo), layoutAtual().colunas);
-  celulas = ids.map((id, i) => ({ id, ...caixas[i], y: caixas[i].y + topo }));
+  const caixas = grade(ids.length, Math.max(0, a.width - 2 * VAO), Math.max(0, a.height - 2 * VAO), layoutAtual().colunas);
+  celulas = ids.map((id, i) => ({ id, ...caixas[i], x: caixas[i].x + a.x + VAO, y: caixas[i].y + a.y + VAO }));
+  const faixa = cfg.visual.faixas ? FAIXA : 0;
   const ficam = new Set(ids);
   for (const [id, v] of vivas) {
     if (v.presa && !ficam.has(id)) {
@@ -151,8 +172,35 @@ function arrumar() {
       v.presa = true;
       medidor.evento(cel.id, 'na tela');
     }
-    v.view.setBounds({ x: cel.x, y: cel.y + CABECALHO, width: cel.width, height: Math.max(0, cel.height - CABECALHO) });
+    // 1 px para dentro de cada lado: a borda da conta (vermelha com aviso) aparece em volta do jogo.
+    v.view.setBounds({ x: cel.x + 1, y: cel.y + 1 + faixa, width: Math.max(0, cel.width - 2), height: Math.max(0, cel.height - 2 - faixa) });
+    v.view.setVisible(v.estado !== 'caiu');
   }
+  // Conta que entrou na tela fica por cima de tudo; a janelinha aberta volta para cima dela.
+  if (sobreAberto) {
+    win.contentView.addChildView(sobre);
+    sobre.setBounds({ x: 0, y: 0, width: largura, height: altura });
+  }
+  enviarEstado();
+}
+
+// ---------- janelinhas ----------
+
+// As páginas do jogo ficam por cima de tudo o que a barra desenha; por isso os detalhes da conta e os painéis abrem
+// numa camada própria, transparente, posta acima das contas só enquanto estão abertos.
+function abrirSobre(dados) {
+  sobreAberto = dados;
+  sobre.webContents.send('abrir', dados);
+  arrumar();
+  sobre.webContents.focus();
+}
+
+function fecharSobre() {
+  if (!sobreAberto) return;
+  sobreAberto = null;
+  sobre.webContents.send('abrir', null);
+  win.contentView.removeChildView(sobre);
+  win.webContents.focus();
   enviarEstado();
 }
 
@@ -172,6 +220,13 @@ function atalho(e, input, id) {
     const L = layoutAtual();
     const alvo = L.contas[Number(tecla) - 1];
     if (L.modo === 'abas' && alvo) { e.preventDefault(); acao('layout:aba', { id: alvo }); }
+  } else if (tecla === 'f11') {
+    e.preventDefault();
+    acao('janela:cheia');
+  } else if (ctrl && tecla === 'b') {
+    // Ctrl+B recolhe ou abre a lateral, mesmo com o teclado dentro do jogo.
+    e.preventDefault();
+    acao('visual:lateral');
   }
 }
 
@@ -195,6 +250,8 @@ function removerConta(id) {
     if (L.aba === id) L.aba = L.contas[0] || null;
   }
   if (foco === id) foco = null;
+  historicos.delete(id);
+  if (sobreAberto && sobreAberto.id === id) fecharSobre();
   // Apaga o login e os dados guardados desta conta; o número dela nunca é reaproveitado.
   const ses = session.fromPartition('persist:' + id);
   ses.clearStorageData().then(() => ses.clearCache()).catch(() => {});
@@ -274,6 +331,16 @@ const ACOES = {
     guarda.esquecer(id);
     v.view.webContents.reload();
   },
+  'conta:som': ({ id, ligado }) => {
+    const c = conta(id);
+    if (!c) return;
+    c.mudo = !ligado;
+    const v = vivas.get(id);
+    if (v) v.view.webContents.setAudioMuted(c.mudo);
+  },
+  'visual:lateral': () => { cfg.visual.lateral = !cfg.visual.lateral; },
+  'visual:faixas': () => { cfg.visual.faixas = !cfg.visual.faixas; },
+  'janela:cheia': () => win.setFullScreen(!win.isFullScreen()),
   'conta:aliviar': ({ id }) => aliviar(id, 'pelo jogador'),
   'app:reiniciar': () => atualizador.reiniciar(),
   'conta:ligar': ({ id }) => { const c = conta(id); if (c) { c.ligada = true; ligarConta(c); } },
@@ -339,17 +406,18 @@ function acao(tipo, dados) {
   arrumar();
 }
 
-// ---------- barra de cima ----------
+// ---------- barra e janelinhas ----------
 
 function enviarEstado() {
   if (!win || win.isDestroyed()) return;
-  win.webContents.send('estado', {
+  const estado = {
     teste: TESTE,
     arquivo: medidor.arquivo,
     inicio: medidor.inicio,
     contas: cfg.contas.map((c) => {
       const v = vivas.get(c.id);
-      return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, ligada: !!v, estado: v ? v.estado : 'desligada', naTela: !!(v && v.presa) };
+      return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, ligada: !!v, estado: v ? v.estado : 'desligada',
+        naTela: !!(v && v.presa), desde: v ? v.desde : null };
     }),
     layouts: cfg.layouts.map(({ id, nome }) => ({ id, nome })),
     layout: layoutAtual(),
@@ -363,7 +431,25 @@ function enviarEstado() {
     alertas: guarda.resumo(),
     abrirAoIniciar: cfg.abrirAoIniciar,
     economico: { escolhido: cfg.economico, agora: ECONOMICO },
-  });
+    visual: cfg.visual,
+    cheia: win.isFullScreen(),
+    aberto: sobreAberto,
+    series: Object.fromEntries(series),
+    historico: Object.fromEntries(historicos),
+  };
+  win.webContents.send('estado', estado);
+  if (sobre) sobre.webContents.send('estado', estado);
+}
+
+// Últimos 5 min (30 medições) de memória e processador de cada conta ligada.
+function guardarSerie(amostra) {
+  for (const id of series.keys()) if (!amostra.contas[id]) series.delete(id);
+  for (const [id, u] of Object.entries(amostra.contas)) {
+    const s = series.get(id) || [];
+    s.push([Math.round(u.ram || 0), Math.round((u.cpu || 0) * 10) / 10]);
+    if (s.length > 30) s.shift();
+    series.set(id, s);
+  }
 }
 
 // Aviso do Windows; clicar nele traz o programa para a frente com a conta na tela.
@@ -392,32 +478,49 @@ function guardarJanela() {
 
 function criarJanela() {
   Menu.setApplicationMenu(null); // sem o menu padrão: o Ctrl+R dele recarregaria a barra, não a conta
+  nativeTheme.themeSource = 'dark'; // Menu ▴ e moldura da janela escuros, como o resto
   const j = cfg.janela || { width: 1600, height: 900 };
   win = new BrowserWindow({
     width: j.width, height: j.height, x: j.x, y: j.y, minWidth: 900, minHeight: 500,
     title: 'HuntDesk' + (TESTE ? ' (teste)' : ''),
     icon: path.join(__dirname, 'ui', 'icone.png'),
-    backgroundColor: '#14161b',
+    backgroundColor: '#0a0c11',
     webPreferences: { preload: path.join(__dirname, 'ui', 'preload.js'), contextIsolation: true, sandbox: true },
   });
   if (j.maximizada) win.maximize();
   win.loadFile(path.join(__dirname, 'ui', 'index.html'));
+  sobre = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'ui', 'preload.js'), contextIsolation: true, sandbox: true } });
+  sobre.setBackgroundColor('#00000000'); // transparente: o jogo aparece escurecido atrás da janelinha
+  sobre.webContents.loadFile(path.join(__dirname, 'ui', 'sobre.html'));
+  sobre.webContents.on('did-finish-load', enviarEstado);
+  sobre.webContents.on('before-input-event', (e, input) => atalho(e, input, null));
+  if (app.isPackaged) apagarPastaAntiga(path.join(app.getPath('userData'), 'medicoes')); // a que a 0.2.0 deixava
   medidor = new Medidor({
     fonte: () => cfg.contas.map((c) => {
       const v = vivas.get(c.id);
       return { id: c.id, freio: c.freio, visivel: !!(v && v.presa), estado: v ? v.estado : 'desligada', wc: v ? v.view.webContents : null };
     }),
     janela: win,
-    // Instalado, o programa não pode gravar na própria pasta: as medições vão para a pasta de dados e ficam só as
-    // mais recentes. Rodando do projeto (npm start), ficam todas em medicoes/.
-    pasta: app.isPackaged ? path.join(app.getPath('userData'), 'medicoes') : path.join(app.getAppPath(), 'medicoes'),
-    manter: app.isPackaged ? 30 : 0,
+    // As planilhas de medição são só para quem desenvolve: rodando do projeto (npm start) ficam em medicoes/. Instalado,
+    // o programa só mede para a tela e a guarda, sem gravar nada no computador de quem joga.
+    pasta: app.isPackaged ? null : path.join(app.getAppPath(), 'medicoes'),
     teste: TESTE,
     aoAmostrar: (amostra) => {
       guarda.vigiar(amostra, cfg.contas.map((c) => ({ id: c.id, nome: c.nome, viva: vivas.has(c.id) })));
+      guardarSerie(amostra);
       enviarEstado();
     },
   });
+  // Cada evento de conta também vai para o histórico curto da janelinha (o completo fica na planilha, rodando do projeto).
+  const anotar = medidor.evento.bind(medidor);
+  medidor.evento = (quem, nota) => {
+    anotar(quem, nota);
+    if (!/^conta\d+$/.test(quem) || /^(na tela|fora da tela|estado: (ok|carregando))$/.test(nota)) return;
+    const h = historicos.get(quem) || [];
+    h.push([Date.now(), nota]);
+    if (h.length > 20) h.shift();
+    historicos.set(quem, h);
+  };
   guarda = new Guarda({
     config: () => cfg,
     recarregar: (id) => { const v = vivas.get(id); if (v) v.view.webContents.reload(); },
@@ -428,6 +531,8 @@ function criarJanela() {
   if (cfg.abrirAoIniciar) cfg.contas.filter((c) => c.ligada).forEach(ligarConta);
   arrumar();
   win.on('resize', () => { arrumar(); guardarJanela(); });
+  win.on('enter-full-screen', enviarEstado);
+  win.on('leave-full-screen', enviarEstado);
   win.on('move', guardarJanela);
   win.on('minimize', () => medidor.evento('janela', 'minimizada'));
   win.on('restore', () => medidor.evento('janela', 'restaurada'));
@@ -436,20 +541,41 @@ function criarJanela() {
   atualizador = new Atualizador({ ativo: !TESTE, aoMudar: enviarEstado, evento: (nota) => medidor.evento('programa', nota) });
   atualizador.comecar();
   medidor.comecar();
-  medidor.evento('programa', `modo econômico ${ECONOMICO ? 'ligado' : 'desligado'}`);
+  medidor.evento('programa', `modo econômico ${ECONOMICO ? 'ligado' : 'desligado'}; quadros ${QUADROS ? 'limitados a ' + QUADROS + '/s' : 'sem limite'}`);
   if (ARGS.includes('--diagnostico')) { const d = () => cfg.contas.forEach((c) => diagnosticar(c.id)); setTimeout(d, 60000); setInterval(d, 5 * 60000); }
   if (EXPERIMENTO_ALIVIO) setInterval(() => ['conta1', 'conta2'].forEach((id) => aliviar(id, 'pelo experimento')), 5 * 60000);
-  if (AUTOTESTE) require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo() }), sair: () => app.quit() });
+  if (AUTOTESTE) {
+    require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, abrir: abrirSobre, fechar: fecharSobre,
+      estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre }), sair: () => app.quit() });
+  }
 }
 
-// Só a barra de cima pode pedir ações; as páginas do jogo não falam com o programa.
-const daBarra = (e) => win && e.sender === win.webContents;
+// Só a barra e as janelinhas podem pedir ações; as páginas do jogo não falam com o programa.
+const daBarra = (e) => win && (e.sender === win.webContents || (sobre && e.sender === sobre.webContents));
 ipcMain.on('acao', (e, tipo, dados) => { if (daBarra(e)) acao(tipo, dados); });
-ipcMain.on('altura-topo', (e, altura) => {
-  const h = Math.round(Number(altura));
-  if (daBarra(e) && h > 0 && h < 2000 && h !== topo) { topo = h; arrumar(); }
+ipcMain.on('area', (e, r) => {
+  if (!win || e.sender !== win.webContents || !r) return;
+  const [x, y, width, height] = [r.x, r.y, r.width, r.height].map((n) => Math.round(Number(n)));
+  if (![x, y, width, height].every((n) => n >= 0 && n < 20000)) return;
+  if (area && area.x === x && area.y === y && area.width === width && area.height === height) return;
+  area = { x, y, width, height };
+  arrumar();
 });
-ipcMain.on('abrir-medicoes', (e) => { if (daBarra(e)) shell.openPath(medidor.pasta); });
+ipcMain.on('abrir', (e, d) => {
+  if (!daBarra(e) || !d) return;
+  const n = (v) => Math.round(Number(v)) || 0;
+  if (d.tipo === 'conta' && conta(d.id)) abrirSobre({ tipo: 'conta', id: d.id, x: n(d.x), y: n(d.y) });
+  else if (d.tipo === 'painel' && PAINEIS.includes(d.painel)) abrirSobre({ tipo: 'painel', painel: d.painel });
+});
+ipcMain.on('fechar', (e) => { if (daBarra(e)) fecharSobre(); });
+// Menu ▴ da barra de baixo: o menu do próprio Windows, que aparece por cima das contas.
+ipcMain.on('menu', (e) => {
+  if (!daBarra(e)) return;
+  const item = (label, painel) => ({ label, click: () => abrirSobre({ tipo: 'painel', painel }) });
+  Menu.buildFromTemplate([item('Medições', 'medicoes'), item('Contas', 'contas'), item('Layouts', 'layouts'), item('Configurações', 'config'),
+    { type: 'separator' }, { label: 'HuntDesk ' + app.getVersion(), enabled: false }]).popup({ window: win });
+});
+ipcMain.on('abrir-medicoes', (e) => { if (daBarra(e) && medidor.arquivo) shell.openPath(medidor.pasta); });
 ipcMain.on('abrir-dados', (e) => { if (daBarra(e)) shell.openPath(app.getPath('userData')); });
 
 if (!app.requestSingleInstanceLock()) {

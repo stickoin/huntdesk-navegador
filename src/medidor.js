@@ -11,9 +11,11 @@ const JANELA_CRESCIMENTO = 30; // amostras usadas no "cresce X MB/min" (30 × 10
 const MUNDO = 4242; // "mundo isolado": o script de medição roda separado do código do jogo e não o enxerga
 
 // Conta quadros desenhados e "batidas de relógio" (um timer de 100 ms: 10 por segundo quando a página roda solta).
+// Com o experimento de quadros (quadros.js), conta também os quadros que o jogo desenhou de fato.
 const INSTALAR = `(() => {
   if (window.__p0) return true;
-  const s = window.__p0 = { quadros: 0, batidas: 0, desde: performance.now() };
+  const s = window.__p0 = { quadros: 0, batidas: 0, jogo: 0, limitado: false, desde: performance.now() };
+  document.addEventListener('huntdesk-quadro', () => { s.jogo++; s.limitado = true; });
   const quadro = () => { s.quadros++; requestAnimationFrame(quadro); };
   requestAnimationFrame(quadro);
   setInterval(() => { s.batidas++; }, 100);
@@ -25,13 +27,13 @@ const LER = `(() => {
   const agora = performance.now();
   const seg = Math.max(0.001, (agora - s.desde) / 1000);
   const r = { fps: s.quadros / seg, relogios: s.batidas / seg, visibilidade: document.visibilityState,
-    heap: performance.memory ? performance.memory.usedJSHeapSize : null };
-  s.quadros = 0; s.batidas = 0; s.desde = agora;
+    heap: performance.memory ? performance.memory.usedJSHeapSize : null, jogo: s.limitado ? s.jogo / seg : null };
+  s.quadros = 0; s.batidas = 0; s.jogo = 0; s.desde = agora;
   return r;
 })()`;
 
 const COLUNAS = ['data_hora', 'minuto', 'linha', 'visivel', 'freio', 'visibilidade', 'fps', 'relogios_por_s',
-  'ram_mb', 'privada_mb', 'cpu_pct', 'heap_js_mb', 'estado', 'nota'];
+  'ram_mb', 'privada_mb', 'cpu_pct', 'heap_js_mb', 'estado', 'nota', 'fps_jogo'];
 
 function comPrazo(promessa, ms) {
   return Promise.race([promessa.catch(() => null), new Promise((r) => setTimeout(() => r(null), ms))]);
@@ -48,14 +50,15 @@ function horaLocal(d) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
-// Apaga as planilhas do medidor mais antigas, deixando as `ficam` mais novas (o nome começa pela data, então a ordem
-// alfabética é a ordem de tempo). Só toca nos arquivos "p0-….csv" que o próprio medidor criou.
-function apagarAntigas(pasta, ficam) {
+// Apaga a pasta de medições que o programa instalado criava até a versão 0.2.0. Só toca nos arquivos "p0-….csv" que o
+// próprio medidor criou; a pasta só some se ficar vazia.
+function apagarPastaAntiga(pasta) {
   let nomes = [];
-  try { nomes = fs.readdirSync(pasta).filter((n) => /^p0-\d{4}-\d{2}-\d{2}_\d{4}.*\.csv$/.test(n)).sort(); } catch (e) { return; }
-  for (const n of nomes.slice(0, Math.max(0, nomes.length - ficam))) {
+  try { nomes = fs.readdirSync(pasta).filter((n) => /^p0-\d{4}-\d{2}-\d{2}_\d{4}.*\.csv$/.test(n)); } catch (e) { return; }
+  for (const n of nomes) {
     try { fs.unlinkSync(path.join(pasta, n)); } catch (e) { /* aberta no Excel: fica para a próxima */ }
   }
+  try { fs.rmdirSync(pasta); } catch (e) { /* sobrou algo que não é do medidor */ }
 }
 
 // Inclinação da reta que melhor passa pelos pontos (minuto, MB): quanto a memória sobe por minuto.
@@ -70,8 +73,8 @@ function inclinacao(pontos) {
 
 class Medidor {
   // fonte(): lista das contas agora, cada uma { id, freio, visivel, estado, wc } (wc = null se desligada).
-  // manter: quantas planilhas antigas guardar na pasta (0 = todas).
-  constructor({ fonte, janela, pasta, manter, teste, aoAmostrar }) {
+  // pasta: onde gravar a planilha; null = não grava arquivo nenhum (programa instalado), só mede para a tela e a guarda.
+  constructor({ fonte, janela, pasta, teste, aoAmostrar }) {
     this.fonte = fonte;
     this.janela = janela;
     this.pasta = pasta;
@@ -79,11 +82,13 @@ class Medidor {
     this.inicio = Date.now();
     this.historico = new Map();
     this.ultima = null;
-    fs.mkdirSync(pasta, { recursive: true });
-    if (manter) apagarAntigas(pasta, manter - 1);
-    const nome = horaLocal(new Date()).replace(/[: ]/g, (c) => (c === ' ' ? '_' : '')).slice(0, 15);
-    this.arquivo = path.join(pasta, `p0-${nome}${teste ? '-teste' : ''}.csv`);
-    fs.writeFileSync(this.arquivo, '﻿' + COLUNAS.join(',') + '\n'); // o "﻿" faz o Excel ler os acentos
+    this.arquivo = null;
+    if (pasta) {
+      fs.mkdirSync(pasta, { recursive: true });
+      const nome = horaLocal(new Date()).replace(/[: ]/g, (c) => (c === ' ' ? '_' : '')).slice(0, 15);
+      this.arquivo = path.join(pasta, `p0-${nome}${teste ? '-teste' : ''}.csv`);
+      fs.writeFileSync(this.arquivo, '﻿' + COLUNAS.join(',') + '\n'); // o "﻿" faz o Excel ler os acentos
+    }
     this.ocupado = false;
   }
 
@@ -102,6 +107,7 @@ class Medidor {
   minuto() { return (Date.now() - this.inicio) / 60000; }
 
   escrever(campos) {
+    if (!this.arquivo) return;
     const linha = COLUNAS.map((k) => celula(campos[k])).join(',') + '\n';
     fs.appendFile(this.arquivo, linha, () => {});
   }
@@ -157,12 +163,12 @@ class Medidor {
         const pagina = await comPrazo(wc.executeJavaScriptInIsolatedWorld(MUNDO, [{ code: LER }]), 3000);
         if (pagina === null && c.estado === 'ok') this.prepararPagina(wc);
         const cresce = this.crescimento(c.id, uso.ram);
-        amostra.contas[c.id] = { ...uso, cresce, fps: pagina && pagina.fps, relogios: pagina && pagina.relogios,
+        amostra.contas[c.id] = { ...uso, cresce, fps: pagina && pagina.fps, fpsJogo: pagina && pagina.jogo, relogios: pagina && pagina.relogios,
           visibilidade: pagina && pagina.visibilidade, heap: pagina && pagina.heap != null ? pagina.heap / 1048576 : null };
         this.escrever({ data_hora: quando, minuto, linha: c.id, visivel: c.visivel ? 'sim' : 'nao', freio: c.freio ? 'sim' : 'nao',
           visibilidade: pagina ? pagina.visibilidade : '', fps: pagina ? num(pagina.fps) : '', relogios_por_s: pagina ? num(pagina.relogios) : '',
           ram_mb: num(uso.ram), privada_mb: num(uso.privada), cpu_pct: num(uso.cpu), heap_js_mb: amostra.contas[c.id].heap == null ? '' : num(amostra.contas[c.id].heap),
-          estado: c.estado });
+          estado: c.estado, fps_jogo: pagina && pagina.jogo != null ? num(pagina.jogo) : '' });
       }
       // Conta desligada ou removida: o "cresce X MB/min" dela recomeça do zero quando voltar.
       for (const chave of this.historico.keys()) if (/^conta/.test(chave) && !vivas.has(chave)) this.historico.delete(chave);
@@ -187,4 +193,4 @@ class Medidor {
   }
 }
 
-module.exports = { Medidor, inclinacao };
+module.exports = { Medidor, inclinacao, apagarPastaAntiga };

@@ -67,8 +67,8 @@ huntdesk.com.br/privacidade, com o texto abaixo.
 
 ## 3. Privacidade do navegador (para a página de privacidade)
 
-- O navegador guarda no seu computador os logins das contas, as suas configurações e as medições de memória.
-  Nada disso é enviado para nós.
+- O navegador guarda no seu computador os logins das contas e as suas configurações. Nada disso é enviado para nós.
+- As medições de memória aparecem só na tela, enquanto o programa está aberto; nenhuma é gravada em arquivo.
 - Para saber se há versão nova, o navegador consulta a página de versões do projeto no GitHub. A versão da loja é
   atualizada pela própria Microsoft.
 - Os sites dos jogos que você abre têm as próprias regras de privacidade.

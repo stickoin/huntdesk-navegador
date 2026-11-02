@@ -1,0 +1,27 @@
+# Monta o pacote da Microsoft Store (.appx) num Windows do GitHub, porque a ferramenta da Microsoft (makeappx) não
+# abre no PC do projeto. Só roda quando alguém aperta "Run workflow" na aba Actions; o pacote fica para baixar no fim.
+# A loja assina o pacote ao aprovar; aqui ele sai sem assinatura.
+name: Pacote da loja
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pacote:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run loja
+      - uses: actions/upload-artifact@v5
+        with:
+          name: pacote-loja
+          path: dist/*.appx
+          if-no-files-found: error
