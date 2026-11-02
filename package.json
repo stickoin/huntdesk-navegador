@@ -11,13 +11,13 @@
     "autoteste": "electron . --autoteste",
     "autoteste:guarda": "electron . --autoteste-guarda",
     "resumo": "node ferramentas/resumo.js",
-    "instalador": "electron-builder --win nsis",
+    "instalador": "electron-builder --win nsis --publish never",
     "autoteste:alivio": "electron . --autoteste-alivio",
     "autoteste:quadros": "electron . --autoteste-quadros --quadros=30",
     "experimento:quadros": "electron . --economico --quadros=30",
     "experimento:alivio": "electron . --experimento-alivio",
     "experimento:economico": "electron . --economico",
-    "loja": "electron-builder --win appx",
+    "loja": "electron-builder --win appx --publish never",
     "github": "node ferramentas/publicar-github.js"
   },
   "devDependencies": {
