@@ -64,7 +64,9 @@ O HuntDesk nunca joga por você: não clica, não digita e não repete comandos.
 - Aviso ou recarga quando passa do limite
 - Freio para contas escondidas
 
-**Palavras-chave:** jogos idle, várias contas, multi conta, navegador para jogos, Huntera
+**Palavras-chave:** jogos idle, várias contas, multi conta, navegador para jogos, jogos de navegador
+
+*(Sem nomes de jogos na loja: os jogos não são do dono, e a loja costuma recusar marcas de outros. Combinado em 03/11.)*
 
 **Política de privacidade:** a loja exige um endereço. Por enquanto, a página `PRIVACIDADE.md` do GitHub
 (https://github.com/stickoin/huntdesk-navegador/blob/main/PRIVACIDADE.md), com o texto abaixo. Mais tarde pode ir para

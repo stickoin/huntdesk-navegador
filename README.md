@@ -1,7 +1,6 @@
 # HuntDesk — navegador para jogos idle
 
-Um navegador feito para quem joga jogos idle e de navegador com várias contas ao mesmo tempo. Começa pelo
-**Huntera**.
+Um navegador feito para quem joga jogos idle e de navegador com várias contas ao mesmo tempo.
 
 - **Várias contas abertas juntas**, cada uma com o login separado e guardado, como se cada uma estivesse num
   navegador diferente.
