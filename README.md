@@ -5,8 +5,11 @@ Um navegador feito para quem joga jogos idle e de navegador com várias contas a
 
 - **Várias contas abertas juntas**, cada uma com o login separado e guardado, como se cada uma estivesse num
   navegador diferente.
-- **Grade ou abas:** todas lado a lado ou uma de cada vez (Ctrl+1, Ctrl+2…). Você pode salvar **layouts**: quais
-  contas aparecem, em grade ou abas, e em quantas colunas.
+- **Pastas e telas na lateral:** junte as contas em pastas (por exemplo, uma por jogo). Cada tela mostra de 1 a 4
+  contas lado a lado; o clique troca de tela (Ctrl+1, Ctrl+2…, Ctrl+Tab) e as outras contas continuam rodando.
+  Arraste as telas e as pastas para mudar a ordem e escolha uma cor para cada conta.
+- **Extensão do HuntDesk** já ligada em cada conta, baixada da loja do Chrome. Conectar uma vez vale para todas as
+  contas. O **app do HuntDesk** abre dentro do navegador.
 - **Controle de memória:** mostra quanto cada conta gasta de memória e de processador. Se uma conta passar do limite
   que você escolheu, o programa **avisa** ou **recarrega só aquela página**, conforme a sua escolha.
 - **Freio:** conta escondida ou fora da tela gasta menos.
@@ -33,8 +36,11 @@ se você apertar **Reiniciar agora**.
 - Logins e configurações ficam só no seu computador, em `%APPDATA%\HuntDesk Navegador`. As medições de memória
   aparecem na tela, mas não são gravadas em arquivo.
 - Desinstalar o programa **não apaga** essa pasta. Em **Configurações > Sobre** há um botão para abri-la.
-- O programa não envia nada para nenhum servidor. Para saber se há versão nova, ele consulta a página de versões do
-  projeto no GitHub.
+- O programa se conecta à internet só para:
+  - ver se há versão nova, na página de versões do projeto no GitHub;
+  - baixar a extensão do HuntDesk da loja do Chrome, ao abrir e a cada 6 horas.
+- A extensão do HuntDesk lê os dados do jogo e só os manda para o app do HuntDesk (no seu PC ou na sua conta
+  HuntDesk) depois que você a conecta, em **Menu ▴ → Extensão HuntDesk…**.
 
 ## Para quem quer mexer no código
 

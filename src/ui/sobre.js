@@ -1,10 +1,24 @@
 'use strict';
-// Janelinhas por cima das contas: os detalhes de uma conta (aberta pelo cartão da lateral) e os painéis do Menu
-// (Medições, Contas, Layouts, Configurações). Ficam numa camada própria, transparente, que o programa põe acima das
-// páginas do jogo só enquanto uma janelinha está aberta.
+// Janelinhas por cima das contas: o menuzinho de uma tela ou de uma pasta (o ⋯ ou o botão direito na lateral) e os
+// painéis do Menu (Medições, Contas, Configurações). Ficam numa janela pequena própria, presa à principal, que o
+// programa mostra só enquanto uma delas está aberta e põe no lugar certo.
 
-let aberto = null; // { tipo: 'conta', id, x, y } | { tipo: 'painel', painel } | null
+let aberto = null; // { tipo: 'tela', tela } | { tipo: 'pasta', pasta, nova } | { tipo: 'painel', painel } | null
 let assinaturaPainel = '';
+let graficosAbertos = false; // "Gráficos e histórico" aberto continua aberto quando os números atualizam
+let removendo = null; // conta com o "Remover" já clicado uma vez: o segundo clique remove (sem caixa de confirmação,
+// que tiraria o foco e fecharia o menuzinho)
+let alturaAvisada = 0;
+
+// A janela tem a altura do que mostra: avisa o programa quando ela muda.
+function avisarTamanho() {
+  const el = aberto && (aberto.tipo === 'painel' ? $('#janela-painel') : $('#janela-menu'));
+  if (!el || el.hidden) return;
+  const altura = el.scrollHeight + 2; // + a borda
+  if (altura === alturaAvisada) return;
+  alturaAvisada = altura;
+  window.p0.tamanho({ altura });
+}
 
 function fechar() {
   aberto = null;
@@ -49,41 +63,73 @@ function historico(id) {
   return linhas.length ? `<ul class="historico">${linhas.join('')}</ul>` : '<p class="nota">Nada ainda.</p>';
 }
 
-// ---------- janelinha da conta ----------
+// ---------- menuzinho da tela (as contas dela) e da pasta ----------
 
-function desenharConta(c) {
-  const j = $('#janela-conta');
+const contaDe = (id) => E.contas.find((c) => c.id === id);
+const nomesDa = (t) => t.contas.map((id) => (contaDe(id) || {}).nome).join(' + ');
+function acharTela(id) {
+  for (const p of E.pastas) { const t = p.telas.find((x) => x.id === id); if (t) return { p, t }; }
+  return null;
+}
+
+// Uma linha por conta da tela: estado, memória, aviso e os botões dela.
+function linhaConta(c) {
   const a = alerta(c.id);
   const e = estadoDe(c, a);
-  const abas = E.layout.modo === 'abas';
-  const principal = !c.ligada ? '<button class="forte principal" data-faz="mostrar">Ligar e mostrar na tela</button>'
-    : abas ? (c.naTela ? '<button class="principal" disabled>Esta é a aba na tela</button>' : '<button class="forte principal" data-faz="mostrar">Ver esta aba</button>')
-      : c.naTela ? '<button class="principal" data-faz="esconder" title="O jogo continua aberto e conectado">Tirar da tela (o jogo continua rodando)</button>'
-        : '<button class="forte principal" data-faz="mostrar">Mostrar na tela</button>';
-  const u = uso(c.id);
-  const serie = (E.series && E.series[c.id]) || [];
-  j.innerHTML = `<div class="cab-janela">${ini(c, e.bola)}<span class="t"><b>${esc(c.nome)}</b>
-      <span class="nota"><span class="${e.classe}">${esc(e.texto)}</span>${c.ligada && c.desde ? ' · ligada há ' + duracao(Date.now() - c.desde) : ''}</span></span>
-      <button class="x" data-fechar title="Fechar (Esc)">✕</button></div>
+  return `<div class="linha-conta" data-conta="${esc(c.id)}">
+    ${ini(c, e.bola)}<span class="t"><b>${esc(c.nome)}</b>
+      <span class="nota"><span class="${e.classe}">${esc(e.texto)}</span>${c.ligada ? ' · ' + ram(uso(c.id)) + (c.desde ? ' · ligada há ' + duracao(Date.now() - c.desde) : '') : ''}</span></span>
     ${a ? `<div class="aviso-caixa ${a.recarregada ? 'atencao' : 'ruim'}">${esc(textoAlerta(a))} <button data-faz="dispensar">Dispensar</button></div>` : ''}
-    ${principal}
-    ${c.ligada ? `<div class="acoes">
+    <span class="botoes">${c.ligada ? `
       <button data-faz="recarregar" title="Recarrega só esta conta (F5 dentro dela faz o mesmo)">Recarregar</button>
       <button data-faz="som" class="${c.mudo ? '' : 'ligado'}" title="Liga ou desliga o som só desta conta">Som: ${c.mudo ? 'desligado' : 'ligado'}</button>
       <button data-faz="freio" class="${c.freio ? 'ligado' : ''}" title="Com o freio, a conta fora da tela roda devagar e gasta menos">Freio: ${c.freio ? 'ligado' : 'desligado'}</button>
-      <button data-faz="desligar" title="Fecha a página e devolve a memória; o login fica guardado">Desligar</button>
+      <button data-faz="desligar" title="Fecha a página e devolve a memória; o login fica guardado">Desligar</button>`
+      : '<button class="forte" data-faz="ligar" title="Abre a página de novo; o login continua guardado">Ligar</button>'}
+      ${removendo === c.id
+        ? '<button class="perigo confirmar" data-faz="remover" title="A conta no jogo não é afetada">Clique de novo para remover (apaga o login guardado neste PC)</button>'
+        : '<button class="perigo" data-faz="remover" title="Tira a conta do navegador e apaga o login guardado dela neste PC">Remover</button>'}</span>
+    <span class="cores" title="Cor desta conta na lateral e na faixa">${Array.from({ length: CORES }, (_, i) =>
+      `<button class="amostra cor${i}${cor(c) === 'cor' + i ? ' escolhida' : ''}" data-cor="${i}" aria-label="Cor ${i + 1}"></button>`).join('')}</span>
+  </div>`;
+}
+
+function desenharTela(p, t) {
+  const cs = t.contas.map(contaDe).filter(Boolean);
+  const outras = p.telas.filter((o) => o.id !== t.id);
+  const max = E.maxPorTela;
+  const graficos = cs.map((c) => {
+    const u = uso(c.id);
+    const serie = (E.series && E.series[c.id]) || [];
+    return `<h4>${esc(c.nome)}</h4>${c.ligada ? `<div class="medida"><span class="nota">Memória, últimos 5 minutos</span><b>${ram(u)} ${cresce(u.cresce)}</b></div>
+      ${grafico(serie.map((s) => s[0]), 'ouro', 50)}
+      <div class="medida"><span class="nota">Processador</span><b>${fmt(u.cpu, 1, '%')}</b></div>
+      ${grafico(serie.map((s) => s[1]), 'azul', 10)}` : ''}
+      ${historico(c.id)}`;
+  }).join('');
+  $('#janela-menu').innerHTML = `<div class="cab-janela"><span class="siglas">${cs.map((c) => ini(c, 'sem')).join('')}</span>
+      <span class="t"><b>${esc(nomesDa(t))}</b><span class="nota">${cs.length === 1 ? 'tela com 1 conta' : cs.length + ' contas lado a lado'} · pasta ${esc(p.nome)}</span></span>
+      <button class="x" data-fechar title="Fechar (Esc)">✕</button></div>
+    ${cs.map(linhaConta).join('')}
+    ${outras.length && cs.length < max ? `<h4>Juntar com… (lado a lado nesta tela)</h4><div class="opcoes">${outras.map((o) =>
+      `<button data-juntar="${esc(o.id)}"${cs.length + o.contas.length > max ? ` disabled title="No máximo ${max} contas por tela"` : ''}>${esc(nomesDa(o))}</button>`).join('')}</div>` : ''}
+    ${cs.length > 1 ? '<h4>Separar</h4><div class="opcoes"><button data-faz="separar">Cada conta numa tela só dela</button></div>' : ''}
+    ${E.pastas.length > 1 ? `<h4>Mover para a pasta</h4><div class="opcoes lado">${E.pastas.filter((q) => q.id !== p.id).map((q) =>
+      `<button data-mover="${esc(q.id)}">${esc(q.nome)}</button>`).join('')}</div>` : ''}
+    <details${graficosAbertos ? ' open' : ''}><summary>Gráficos e histórico</summary>${graficos}</details>`;
+}
+
+function desenharPasta(p) {
+  const n = p.telas.reduce((s, t) => s + t.contas.length, 0);
+  $('#janela-menu').innerHTML = `<div class="cab-janela"><span class="t"><b>Pasta</b><span class="nota">${n === 1 ? '1 conta' : n + ' contas'} em ${p.telas.length === 1 ? '1 tela' : p.telas.length + ' telas'}</span></span>
+      <button class="x" data-fechar title="Fechar (Esc)">✕</button></div>
+    <label class="linha-form">Nome <input id="nome-pasta" value="${esc(p.nome)}" maxlength="40" aria-label="Nome da pasta"></label>
+    <div class="opcoes">
+      <button data-faz="ver-todas"${n ? '' : ' disabled'}>Ver as contas da pasta juntas</button>
+      <button data-faz="conta-nova">+ Conta nova nesta pasta</button>
+      ${!p.telas.length && E.pastas.length > 1 ? '<button data-faz="apagar-pasta" class="perigo">Apagar a pasta (está vazia)</button>' : ''}
     </div>
-    <h4>Últimos 5 minutos</h4>
-    <div class="medida"><span class="nota">Memória</span><b>${ram(u)} ${cresce(u.cresce)}</b></div>
-    ${grafico(serie.map((s) => s[0]), 'ouro', 50)}
-    <div class="medida"><span class="nota">Processador</span><b>${fmt(u.cpu, 1, '%')}</b></div>
-    ${grafico(serie.map((s) => s[1]), 'azul', 10)}`
-    : '<p class="nota">Desligada: não gasta memória. O login continua guardado.</p>'}
-    <h4>Histórico</h4>
-    ${historico(c.id)}`;
-  // Abre ao lado do cartão clicado, sem sair da janela.
-  j.style.left = Math.round((aberto.x || 0) + 10) + 'px';
-  j.style.top = Math.round(Math.max(10, Math.min((aberto.y || 0) - 10, window.innerHeight - j.offsetHeight - 46))) + 'px';
+    <p class="nota">Para levar contas para outra pasta, use "Mover para a pasta" no ⋯ de cada tela.</p>`;
 }
 
 // ---------- painéis ----------
@@ -130,21 +176,6 @@ function painelContas() {
       Confira o limite de contas do jogo antes de abrir muitas.</p>`;
 }
 
-function painelLayouts() {
-  const linhas = E.layouts.map((l) => `<div class="linha-form" data-layout="${esc(l.id)}">
-      <input data-campo="nome-layout" value="${esc(l.nome)}" maxlength="40" aria-label="Nome do layout">
-      ${l.id === E.layout.id ? '<span class="nota">em uso</span>' : '<button data-faz="usar">Usar</button>'}
-      ${E.layouts.length > 1 ? '<button data-faz="apagar-layout" class="perigo">Apagar</button>' : ''}
-    </div>`).join('');
-  return `${linhas}
-    <div class="linha-form nova">
-      <input id="novo-layout" placeholder="Nome do layout novo" maxlength="40">
-      <button id="criar-layout">Salvar a tela de agora como layout novo</button>
-    </div>
-    <p class="nota">O layout guarda quais contas aparecem, grade ou abas e as colunas. Mudanças no layout em uso são
-      salvas sozinhas.</p>`;
-}
-
 function painelConfig() {
   const g = E.guarda;
   return `<div class="config">
@@ -154,7 +185,7 @@ function painelConfig() {
       <span class="nota">perto do limite (80%) o número fica amarelo; acima, vermelho</span></label>
     <div class="linha-form">Quando uma conta passar do limite:</div>
     <label class="opcao"><input type="radio" name="acao" value="avisar"${g.acao === 'avisar' ? ' checked' : ''}>
-      <span><b>Avisar e esperar meu clique</b> — a faixa da conta fica vermelha e você aperta Recarregar quando quiser.</span></label>
+      <span><b>Avisar e esperar meu clique</b> — a conta fica marcada em vermelho e você aperta Recarregar quando quiser.</span></label>
     <label class="opcao"><input type="radio" name="acao" value="recarregar"${g.acao === 'recarregar' ? ' checked' : ''}>
       <span><b>Recarregar sozinho</b> — recarrega só a página daquela conta (no máximo uma vez a cada 10 min). O programa
       nunca entra na conta nem volta à hunt: se o jogo pedir login, espera você.</span></label>
@@ -177,7 +208,6 @@ function painelConfig() {
 const PAINEIS = {
   medicoes: ['Medições', painelMedicoes],
   contas: ['Contas', painelContas],
-  layouts: ['Layouts', painelLayouts],
   config: ['Configurações', painelConfig],
 };
 
@@ -187,7 +217,6 @@ function desenharPainel() {
   // Os painéis com campos de texto só são redesenhados quando algo muda de verdade e ninguém está digitando neles.
   const dados = {
     contas: () => E.contas.map((c) => [c.id, c.nome, c.url, c.ligada]),
-    layouts: () => [E.layouts, E.layout.id],
     config: () => [E.guarda, E.abrirAoIniciar, E.economico, E.sobre],
   };
   const assinatura = aberto.painel === 'medicoes' ? 'medicoes' + Math.random() : aberto.painel + JSON.stringify(dados[aberto.painel]());
@@ -199,40 +228,77 @@ function desenharPainel() {
 }
 
 function desenhar() {
-  const conta = aberto && aberto.tipo === 'conta' && E ? E.contas.find((c) => c.id === aberto.id) : null;
-  $('#janela-conta').hidden = !conta;
+  const tela = aberto && aberto.tipo === 'tela' && E ? acharTela(aberto.tela) : null;
+  const pasta = aberto && aberto.tipo === 'pasta' && E ? E.pastas.find((p) => p.id === aberto.pasta) : null;
+  // Tela ou pasta que deixou de existir (juntada, removida, apagada): a janelinha fecha.
+  if (aberto && E && ((aberto.tipo === 'tela' && !tela) || (aberto.tipo === 'pasta' && !pasta))) return fechar();
+  const menu = $('#janela-menu');
+  menu.hidden = !(tela || pasta);
   $('#janela-painel').hidden = !(aberto && aberto.tipo === 'painel' && E);
-  if (conta) desenharConta(conta);
+  // Ninguém digitando no nome da pasta: aí pode redesenhar.
+  const digitando = menu.contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
+  if (tela) desenharTela(tela.p, tela.t);
+  else if (pasta && !digitando) desenharPasta(pasta);
   else if (aberto && aberto.tipo === 'painel' && E) desenharPainel();
+  avisarTamanho();
 }
 
-window.p0.aoAbrir((dados) => { aberto = dados; assinaturaPainel = ''; desenhar(); });
-window.p0.aoEstado((estado) => {
-  E = estado;
-  // Conta removida com a janelinha dela aberta: a janelinha fecha.
-  if (aberto && aberto.tipo === 'conta' && !E.contas.some((c) => c.id === aberto.id)) return fechar();
+window.p0.aoAbrir((dados) => {
+  aberto = dados;
+  removendo = null;
+  assinaturaPainel = '';
+  alturaAvisada = 0;
   desenhar();
+  // Pasta que acabou de ser criada: o nome já fica escolhido para trocar.
+  if (dados && dados.tipo === 'pasta' && dados.nova && $('#nome-pasta')) { $('#nome-pasta').focus(); $('#nome-pasta').select(); }
 });
+window.addEventListener('resize', avisarTamanho);
+// Abrir ou fechar "Gráficos e histórico" muda a altura (o evento não sobe pela página: escuta na descida).
+document.addEventListener('toggle', (ev) => {
+  if (ev.target.closest && ev.target.closest('#janela-menu')) graficosAbertos = ev.target.open;
+  avisarTamanho();
+}, true);
+window.p0.aoEstado((estado) => { E = estado; desenhar(); });
 
 // ---------- cliques ----------
 
 document.addEventListener('click', (ev) => {
-  if (ev.target.id === 'fundo') return fechar();
   const b = ev.target.closest('button');
   if (!b || !E) return;
   if (b.hasAttribute('data-fechar')) return fechar();
   if (b.dataset.dispensar) return acao('guarda:dispensar', { id: b.dataset.dispensar });
-  if (b.closest('#janela-conta')) {
-    const c = E.contas.find((x) => x.id === aberto.id);
-    if (!c) return;
+  if (b.closest('#janela-menu')) {
     const f = b.dataset.faz;
-    if (f === 'mostrar') return acao('conta:mostrar', { id: c.id });
-    if (f === 'esconder') return acao('conta:esconder', { id: c.id });
-    if (f === 'recarregar') return acao('conta:recarregar', { id: c.id });
-    if (f === 'som') return acao('conta:som', { id: c.id, ligado: c.mudo });
-    if (f === 'freio') return acao('conta:freio', { id: c.id, ligado: !c.freio });
-    if (f === 'desligar') return acao('conta:desligar', { id: c.id });
-    if (f === 'dispensar') return acao('guarda:dispensar', { id: c.id });
+    const linhaConta = b.closest('[data-conta]');
+    if (linhaConta) {
+      const c = contaDe(linhaConta.dataset.conta);
+      if (!c) return;
+      if (f === 'remover') {
+        if (removendo !== c.id) { removendo = c.id; return desenhar(); }
+        removendo = null;
+        return acao('conta:remover', { id: c.id });
+      }
+      removendo = null;
+      if (b.dataset.cor) return acao('conta:cor', { id: c.id, cor: Number(b.dataset.cor) });
+      if (f === 'recarregar') return acao('conta:recarregar', { id: c.id });
+      if (f === 'som') return acao('conta:som', { id: c.id, ligado: c.mudo });
+      if (f === 'freio') return acao('conta:freio', { id: c.id, ligado: !c.freio });
+      if (f === 'desligar') return acao('conta:desligar', { id: c.id });
+      if (f === 'ligar') return acao('conta:mostrar', { id: c.id });
+      if (f === 'dispensar') return acao('guarda:dispensar', { id: c.id });
+      return;
+    }
+    if (aberto.tipo === 'tela') {
+      if (b.dataset.juntar) return acao('tela:juntar', { tela: aberto.tela, com: b.dataset.juntar });
+      // Separar e mover mudam a lateral: o menuzinho, ao lado da linha de antes, fecha.
+      if (f === 'separar') { acao('tela:separar', { tela: aberto.tela }); return fechar(); }
+      if (b.dataset.mover) { acao('tela:mover', { tela: aberto.tela, para: b.dataset.mover }); return fechar(); }
+      return;
+    }
+    const pasta = aberto.pasta;
+    if (f === 'ver-todas') { acao('tela:ver', { pasta, tela: 'todas' }); return fechar(); }
+    if (f === 'conta-nova') { acao('conta:adicionar', { pasta, url: E.padrao }); return fechar(); }
+    if (f === 'apagar-pasta') { acao('pasta:apagar', { id: pasta }); return fechar(); }
     return;
   }
   const linha = b.closest('[data-linha]');
@@ -245,11 +311,6 @@ document.addEventListener('click', (ev) => {
       return acao('conta:remover', { id });
     }
   }
-  const lay = b.closest('[data-layout]');
-  if (lay) {
-    if (b.dataset.faz === 'usar') return acao('layout:escolher', { id: lay.dataset.layout });
-    if (b.dataset.faz === 'apagar-layout' && confirm('Apagar este layout? As contas não são afetadas.')) return acao('layout:apagar', { id: lay.dataset.layout });
-  }
   if (b.id === 'abrir-medicoes') return window.p0.abrirMedicoes();
   if (b.id === 'abrir-dados') return window.p0.abrirDados();
   if (b.id === 'nova-adicionar') {
@@ -257,11 +318,6 @@ document.addEventListener('click', (ev) => {
     acao('conta:adicionar', { nome: $('#nova-nome').value, url: url || E.padrao });
     $('#nova-nome').value = '';
     $('#nova-url').value = '';
-    return;
-  }
-  if (b.id === 'criar-layout') {
-    acao('layout:novo', { nome: $('#novo-layout').value });
-    $('#novo-layout').value = '';
   }
 });
 
@@ -280,8 +336,7 @@ document.addEventListener('change', (ev) => {
   const linha = el.closest('[data-linha]');
   if (linha && el.dataset.campo === 'nome') return acao('conta:renomear', { id: linha.dataset.linha, nome: el.value });
   if (linha && el.dataset.campo === 'url') return acao('conta:endereco', { id: linha.dataset.linha, url: el.value.trim() });
-  const lay = el.closest('[data-layout]');
-  if (lay && el.dataset.campo === 'nome-layout') return acao('layout:renomear', { id: lay.dataset.layout, nome: el.value });
+  if (el.id === 'nome-pasta' && aberto && aberto.tipo === 'pasta') return acao('pasta:renomear', { id: aberto.pasta, nome: el.value });
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && aberto) return fechar();

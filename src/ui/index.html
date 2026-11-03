@@ -10,36 +10,29 @@
 <div id="app">
   <aside id="lado">
     <div class="marca"><img src="icone.png" alt=""><span class="some">HuntDesk</span></div>
+    <div class="tela app-card" id="app-card" role="button" tabindex="0" data-app
+      title="App do HuntDesk aqui dentro, no lugar das contas (o login dele fica guardado à parte). Clique numa tela para voltar ao jogo.">
+      <img src="icone.png" alt=""><span class="nomes some">App do HuntDesk</span><span class="linha2 some" id="app-linha2"></span>
+    </div>
     <div id="lista"></div>
-    <button class="mais" data-abrir="contas" title="Adicionar uma conta nova"><span class="some">+ Adicionar conta</span><span class="so-recolhida">+</span></button>
+    <button class="mais" id="nova-pasta" title="Uma pasta nova, por exemplo para outro jogo"><span class="some">+ Nova pasta</span><span class="so-recolhida">+</span></button>
     <button class="recolher" id="recolher" title="Recolher ou abrir esta barra (Ctrl+B)"><span id="seta">«</span> <span class="some">Recolher</span></button>
   </aside>
   <main id="area">
     <div id="vazio" hidden>
-      <p>Nenhuma conta na tela.</p>
-      <p class="nota">Clique numa conta na barra ao lado e escolha <b>Mostrar na tela</b>.</p>
+      <p>Nenhuma conta ligada nesta tela.</p>
+      <p class="nota">Clique numa tela na barra ao lado: as contas dela ligam e aparecem aqui.</p>
     </div>
   </main>
   <footer id="baixo">
     <button class="saude" id="saude"></button>
     <span class="sep"></span>
-    <span class="junto" role="group" aria-label="Arrumação">
-      <button data-modo="grade" title="Todas as contas do layout lado a lado">Grade</button>
-      <button data-modo="abas" title="Uma conta de cada vez; troque pela janelinha da conta ou Ctrl+1, Ctrl+2…">Abas</button>
-    </span>
-    <select id="colunas" title="Colunas da grade">
-      <option value="0">Colunas: auto</option><option value="1">1 coluna</option><option value="2">2 colunas</option>
-      <option value="3">3 colunas</option><option value="4">4 colunas</option><option value="5">5 colunas</option><option value="6">6 colunas</option>
-    </select>
-    <select id="layout" title="Layout salvo: quais contas aparecem e como"></select>
-    <span class="sep"></span>
     <button id="economia" title="Modo do Chrome para computador fraco: cada conta gasta bem menos memória e a imagem fica um pouco mais simples. Trocar fecha e abre o programa."></button>
     <span class="nota" id="total"></span>
     <span class="espaco"></span>
     <button id="reiniciar" class="forte" hidden></button>
-    <button id="faixas" title="Mostrar ou esconder a faixa com o nome em cima de cada conta"></button>
     <button id="cheia" title="Tela cheia (F11)"></button>
-    <button id="abrir-menu" title="Medições, contas, layouts e configurações">Menu ▴</button>
+    <button id="abrir-menu" title="Medições, contas e configurações">Menu ▴</button>
   </footer>
 </div>
 <div id="celulas"></div>

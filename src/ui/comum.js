@@ -2,7 +2,7 @@
 // Partes usadas pela barra (ui.js) e pelas janelinhas (sobre.js): números, siglas e o estado de cada conta.
 
 const ESTADOS = { ok: 'rodando', carregando: 'carregando…', travada: 'sem resposta', caiu: 'caiu', erro: 'erro ao abrir', desligada: 'desligada' };
-const CORES = 6; // classes .cor0 a .cor5 no estilo.css
+const CORES = 8; // classes .cor0 a .cor7 no estilo.css; o jogador escolhe uma para cada conta
 const $ = (sel) => document.querySelector(sel);
 let E = null; // último estado recebido do programa
 
@@ -43,10 +43,10 @@ function sigla(nome) {
   const n = String(nome).trim();
   return (/\d/.test(n) ? n[0] + n.replace(/\D/g, '').slice(0, 2) : n.slice(0, 2)).toUpperCase();
 }
-// Cada conta tem a cor do seu número, que nunca muda (conta1 → cor0, conta2 → cor1…).
-const cor = (id) => 'cor' + ((Number(String(id).replace(/\D/g, '')) || 1) - 1) % CORES;
+// A cor escolhida pelo jogador; sem escolha, a do número da conta (conta1 → cor0, conta2 → cor1…, voltando a cada 6).
+const cor = (c) => 'cor' + (Number.isInteger(c.cor) ? c.cor : ((Number(String(c.id).replace(/\D/g, '')) || 1) - 1) % 6);
 // Sigla colorida; `bola` é a bolinha do estado ('' verde, atencao, ruim, off, sem = nenhuma).
-const ini = (c, bola = '', extra = '') => `<span class="ini ${cor(c.id)} ${bola} ${extra}">${esc(sigla(c.nome))}</span>`;
+const ini = (c, bola = '', extra = '') => `<span class="ini ${cor(c)} ${bola} ${extra}">${esc(sigla(c.nome))}</span>`;
 
 // O que o cartão e a janelinha dizem da conta.
 function estadoDe(c, a) {

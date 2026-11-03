@@ -1,14 +1,14 @@
 'use strict';
-// Contas, layouts e o tamanho da janela, guardados em config.json na pasta de dados do programa
-// (%APPDATA%\HuntDesk Navegador P0). Os logins não ficam aqui: cada conta tem o próprio cofre do Chrome.
+// Contas, pastas e telas e o tamanho da janela, guardados em config.json na pasta de dados do programa
+// (%APPDATA%\HuntDesk Navegador). Os logins não ficam aqui: cada conta tem o próprio cofre do Chrome.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { app } = require('electron');
 
 const JOGO_PADRAO = 'https://huntera.com.br/game';
-const MODOS = ['grade', 'abas'];
-const MAX_COLUNAS = 6;
+const MAX_POR_TELA = 4; // contas lado a lado numa tela
+const CORES = 8; // cores que o jogador pode escolher para cada conta (0 a 7)
 
 function arquivo() { return path.join(app.getPath('userData'), 'config.json'); }
 
@@ -19,21 +19,25 @@ const LIMITE_ECONOMICO = 1024;
 
 function padrao() {
   return {
-    versao: 2,
+    versao: 3,
     proximaConta: 3,
-    proximoLayout: 2,
+    proximaPasta: 2,
+    proximaTela: 2,
     contas: [
       { id: 'conta1', nome: 'Conta 1', url: JOGO_PADRAO, freio: true, ligada: true },
       { id: 'conta2', nome: 'Conta 2', url: JOGO_PADRAO, freio: true, ligada: true },
     ],
-    layouts: [{ id: 'layout1', nome: 'Principal', modo: 'grade', colunas: 0, contas: ['conta1', 'conta2'], aba: 'conta1' }],
-    layoutAtual: 'layout1',
+    // Pastas (uma por jogo, por exemplo) com as telas; cada tela mostra de 1 a 4 contas lado a lado e cada conta fica
+    // em uma tela só. `atual` é o que está na janela: uma tela, ou 'todas' = a pasta inteira.
+    pastas: [{ id: 'pasta1', nome: 'Minhas contas', aberta: true, telas: [{ id: 'tela1', contas: ['conta1', 'conta2'] }] }],
+    atual: { pasta: 'pasta1', tela: 'tela1' },
     janela: null,
     // Guarda de memória: o que fazer quando uma conta passa do limite.
     guarda: { limiteMb: LIMITE_NORMAL, acao: 'avisar', avisoTotalMb: 0, notificacoes: true },
     abrirAoIniciar: true, // false = as contas esperam o jogador apertar Ligar
     economico: false, // modo do Chrome para computador fraco: menos memória, imagem um pouco mais simples
-    visual: { lateral: true, faixas: true }, // lateral aberta (false = só as siglas) e faixa em cima de cada conta
+    visual: { lateral: true }, // lateral aberta (false = só as siglas)
+    huntdesk: null, // ligação com o app do HuntDesk (ver limparLigacao); null = o jogador ainda não abriu a janela dele
   };
 }
 
@@ -60,6 +64,21 @@ function limiteDoModo(limiteMb, economico) {
   return limiteMb === antigo ? (economico ? LIMITE_ECONOMICO : LIMITE_NORMAL) : limiteMb;
 }
 
+// Ligação com o app do HuntDesk (o que a extensão guarda: servidor do PC e conta na nuvem), copiada para todas as
+// contas. O que vem da extensão é conferido antes de ir para cá e para as outras contas.
+function limparLigacao(d) {
+  if (!d || typeof d !== 'object') return null;
+  const origem = (o) => { try { const u = new URL(String(o)); return /^https?:$/.test(u.protocol) ? u.origin : null; } catch (e) { return null; } };
+  const c = d.cloud;
+  return {
+    pc: d.pc === true,
+    pcOrigin: origem(d.pcOrigin) || 'http://localhost:8766',
+    cloud: c && typeof c === 'object' && origem(c.origin) && typeof c.key === 'string'
+      ? { origin: origem(c.origin), key: c.key.slice(0, 500), id: c.id == null ? null : String(c.id).slice(0, 100), email: typeof c.email === 'string' ? c.email.slice(0, 200) : null }
+      : null,
+  };
+}
+
 function enderecoValido(url) {
   try {
     const u = new URL(url);
@@ -79,6 +98,46 @@ function numeroDoId(id, prefixo) {
   return m ? Number(m[1]) : 0;
 }
 
+// Pastas e telas: cada conta fica em exatamente uma tela, com no máximo 4 por tela. Conta que sobrar (de um arquivo da
+// versão de antes, com os layouts, ou estragado) ganha uma tela só dela na primeira pasta.
+function limparPastas(cfg, bruto) {
+  const ids = new Set(cfg.contas.map((c) => c.id));
+  const usadas = new Set();
+  const pastasVistas = new Set();
+  const telasVistas = new Set();
+  const novoId = (prefixo, vistos) => { let n = 1; while (vistos.has(prefixo + n)) n++; vistos.add(prefixo + n); return prefixo + n; };
+  cfg.pastas = [];
+  for (const p of Array.isArray(bruto.pastas) ? bruto.pastas : []) {
+    if (!p || typeof p.id !== 'string' || !numeroDoId(p.id, 'pasta') || pastasVistas.has(p.id)) continue;
+    pastasVistas.add(p.id);
+    const telas = [];
+    for (const t of Array.isArray(p.telas) ? p.telas : []) {
+      if (!t || typeof t.id !== 'string' || !numeroDoId(t.id, 'tela') || telasVistas.has(t.id)) continue;
+      telasVistas.add(t.id);
+      const contas = [];
+      for (const id of Array.isArray(t.contas) ? t.contas : []) {
+        if (!ids.has(id) || usadas.has(id) || contas.length >= MAX_POR_TELA) continue;
+        usadas.add(id);
+        contas.push(id);
+      }
+      if (contas.length) telas.push({ id: t.id, contas });
+    }
+    cfg.pastas.push({ id: p.id, nome: nomeValido(p.nome, 'Pasta'), aberta: p.aberta !== false, telas });
+  }
+  if (!cfg.pastas.length) cfg.pastas.push({ id: novoId('pasta', pastasVistas), nome: 'Minhas contas', aberta: true, telas: [] });
+  const sobra = cfg.contas.filter((c) => !usadas.has(c.id));
+  for (const c of sobra) cfg.pastas[0].telas.push({ id: novoId('tela', telasVistas), contas: [c.id] });
+  const a = bruto.atual || {};
+  const pa = cfg.pastas.find((p) => p.id === a.pasta);
+  if (pa && (a.tela === 'todas' || pa.telas.some((t) => t.id === a.tela))) cfg.atual = { pasta: pa.id, tela: a.tela };
+  // Vindo da versão de antes (sem pastas), a pasta inteira fica na tela, como a grade de antes.
+  else if (!Array.isArray(bruto.pastas) || !cfg.pastas[0].telas.length) cfg.atual = { pasta: cfg.pastas[0].id, tela: 'todas' };
+  else cfg.atual = { pasta: cfg.pastas[0].id, tela: cfg.pastas[0].telas[0].id };
+  const maior = (prefixo, lista) => Math.max(0, ...lista.map((x) => numeroDoId(x, prefixo)));
+  cfg.proximaPasta = Math.max(Number(bruto.proximaPasta) || 0, maior('pasta', [...pastasVistas]) + 1, 1);
+  cfg.proximaTela = Math.max(Number(bruto.proximaTela) || 0, maior('tela', [...telasVistas]) + 1, 1);
+}
+
 // Confere o que veio do arquivo: nada quebrado ou estranho entra no programa.
 function limpar(bruto) {
   const cfg = padrao();
@@ -94,35 +153,18 @@ function limpar(bruto) {
     freio: c.freio !== false,
     ligada: c.ligada !== false,
     mudo: c.mudo === true, // som desligado só nesta conta
+    cor: Number.isInteger(c.cor) && c.cor >= 0 && c.cor < CORES ? c.cor : null, // null = a cor do número da conta
   }));
-  const ids = new Set(cfg.contas.map((c) => c.id));
-  const layoutsVistos = new Set();
-  cfg.layouts = (Array.isArray(bruto.layouts) ? bruto.layouts : []).filter((l) => {
-    if (!l || typeof l.id !== 'string' || !numeroDoId(l.id, 'layout') || layoutsVistos.has(l.id)) return false;
-    layoutsVistos.add(l.id);
-    return true;
-  }).map((l) => {
-    const contas = [...new Set(Array.isArray(l.contas) ? l.contas : [])].filter((id) => ids.has(id));
-    return {
-      id: l.id,
-      nome: nomeValido(l.nome, 'Layout'),
-      modo: MODOS.includes(l.modo) ? l.modo : 'grade',
-      colunas: Number.isInteger(l.colunas) && l.colunas >= 0 && l.colunas <= MAX_COLUNAS ? l.colunas : 0,
-      contas,
-      aba: contas.includes(l.aba) ? l.aba : contas[0] || null,
-    };
-  });
-  if (!cfg.layouts.length) cfg.layouts = [{ id: 'layout1', nome: 'Principal', modo: 'grade', colunas: 0, contas: [...ids], aba: [...ids][0] || null }];
-  cfg.layoutAtual = cfg.layouts.some((l) => l.id === bruto.layoutAtual) ? bruto.layoutAtual : cfg.layouts[0].id;
   cfg.proximaConta = Math.max(Number(bruto.proximaConta) || 0, ...cfg.contas.map((c) => numeroDoId(c.id, 'conta') + 1), 1);
-  cfg.proximoLayout = Math.max(Number(bruto.proximoLayout) || 0, ...cfg.layouts.map((l) => numeroDoId(l.id, 'layout') + 1), 1);
+  limparPastas(cfg, bruto);
   cfg.guarda = limparGuarda(bruto.guarda);
   // Até a versão 1 o limite de fábrica era 3.072 MB; quem nunca mexeu nele passa para o de agora.
   if (!(bruto.versao >= 2) && cfg.guarda.limiteMb === 3072) cfg.guarda.limiteMb = LIMITE_NORMAL;
   cfg.abrirAoIniciar = bruto.abrirAoIniciar !== false;
   cfg.economico = bruto.economico === true;
   const v = bruto.visual || {};
-  cfg.visual = { lateral: v.lateral !== false, faixas: v.faixas !== false };
+  cfg.visual = { lateral: v.lateral !== false };
+  cfg.huntdesk = bruto.huntdesk ? limparLigacao(bruto.huntdesk) : null;
   const j = bruto.janela;
   if (j && [j.width, j.height].every((n) => Number.isInteger(n) && n >= 400)) {
     cfg.janela = { width: j.width, height: j.height, x: Number.isInteger(j.x) ? j.x : undefined, y: Number.isInteger(j.y) ? j.y : undefined, maximizada: !!j.maximizada };
@@ -155,4 +197,4 @@ function salvar(cfg) {
   timer = setTimeout(() => gravarAgora(cfg), 300);
 }
 
-module.exports = { carregar, salvar, gravarAgora, enderecoValido, nomeValido, limparGuarda, limiteDoModo, JOGO_PADRAO, MODOS, MAX_COLUNAS, LIMITE_MIN, LIMITE_MAX };
+module.exports = { carregar, salvar, gravarAgora, enderecoValido, nomeValido, limparGuarda, limparLigacao, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };

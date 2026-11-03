@@ -1,14 +1,15 @@
 'use strict';
-// HuntDesk Navegador — P1: várias contas do jogo, cada uma com o login separado, em grade ou em abas, com layouts
-// salvos; mede memória e CPU de cada conta (herdado do P0).
+// HuntDesk Navegador — P1: várias contas do jogo, cada uma com o login separado, organizadas em pastas e telas (cada
+// tela com 1 a 4 contas lado a lado); mede memória e CPU de cada conta (herdado do P0).
 // Regra 1 do projeto: o programa só organiza as janelas e mede. Nunca clica, digita ou entra em nada dentro do
 // jogo — toda ação sai de um botão ou atalho apertado pelo jogador.
 
 const path = require('node:path');
-const { app, BrowserWindow, WebContentsView, Menu, Notification, ipcMain, nativeTheme, session, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Notification, dialog, ipcMain, nativeTheme, session, shell } = require('electron');
 const { Medidor, apagarPastaAntiga } = require('./medidor');
 const { Guarda } = require('./guarda');
 const { Atualizador } = require('./atualizador');
+const { Extensao, ID: ID_EXTENSAO } = require('./extensao');
 const config = require('./config');
 
 const ARGS = process.argv.slice(1);
@@ -16,9 +17,9 @@ const CENARIO = (ARGS.find((a) => a.startsWith('--autoteste')) || '').replace(/^
 const AUTOTESTE = ARGS.some((a) => a.startsWith('--autoteste'));
 const TESTE = AUTOTESTE || ARGS.includes('--teste');
 const PAGINA_TESTE = path.join(__dirname, 'teste', 'pagina-teste.html');
-const FAIXA = 24; // faixa com o nome e os botões em cima de cada conta (o jogador pode esconder)
+const FAIXA = 24; // faixa com o nome e os botões em cima de cada conta (só com mais de uma conta na tela)
 const VAO = 4; // espaço entre as contas
-const PAINEIS = ['medicoes', 'contas', 'layouts', 'config'];
+const PAINEIS = ['medicoes', 'contas', 'config'];
 
 // O Chrome arredonda a memória do JavaScript que a página informa; com esta opção vem o número exato.
 app.commandLine.appendSwitch('enable-precise-memory-info');
@@ -35,7 +36,7 @@ const EXPERIMENTO_ALIVIO = ARGS.includes('--experimento-alivio');
 // limit-fps não serve: no Electron ela não limita as páginas.
 const QUADROS = Number((ARGS.find((a) => a.startsWith('--quadros=')) || '').split('=')[1]) || 0;
 
-let cfg = config.carregar(); // contas e layouts (config.json)
+let cfg = config.carregar(); // contas, pastas e telas (config.json)
 // Modo econômico: o modo do Chrome para computador fraco (menos memória, imagem um pouco mais simples). Só vale ao abrir o
 // programa, por isso trocar nas Configurações reinicia.
 const ECONOMICO = cfg.economico || ARGS.includes('--economico');
@@ -45,17 +46,38 @@ let win = null;
 let medidor = null;
 let guarda = null;
 let atualizador = null;
+let extensao = null; // extensão do HuntDesk nas contas (fora dos testes)
+let janelaHuntDesk = null;
+let appVista = null; // o site do app do HuntDesk, dentro da janela (ver vistaDoApp)
+let mostrandoApp = false; // true = o app do HuntDesk está na janela, no lugar das contas
+const APP_HUNTDESK = 'https://app.huntdesk.com.br/';
 const avisosAbertos = new Set(); // notificações do Windows na tela (sem referência, o Windows as perde)
 let area = null; // espaço das contas (entre a lateral e a barra de baixo), informado pela própria barra
 let foco = null; // última conta clicada: o F5 recarrega só ela
 let celulas = [];
-let sobre = null; // camada das janelinhas (detalhes da conta e painéis), posta por cima das contas
-let sobreAberto = null; // o que está aberto nela: { tipo: 'conta', id, x, y } | { tipo: 'painel', painel } | null
+let sobre = null; // janelinha da conta e janela dos painéis: uma janela pequena, sem moldura, presa à principal
+// O que está aberto nela: { tipo: 'tela', tela, x, y } | { tipo: 'pasta', pasta, x, y, nova } | { tipo: 'painel', painel } | null
+let sobreAberto = null;
+let sobreFechado = { qual: null, quando: 0 }; // o clique que fecha a janelinha não pode abrir a mesma de novo
+let alturaSobre = 0; // altura que a janelinha pediu, conforme o que ela mostra
+let timerSobre = null;
+let abertoEm = 0;
+let saindo = false;
 const series = new Map(); // id da conta → últimas 30 medições [MB, % processador], para os gráficos da janelinha
 const historicos = new Map(); // id da conta → últimos eventos [quando, nota], para o histórico da janelinha
 
 const conta = (id) => cfg.contas.find((c) => c.id === id);
-const layoutAtual = () => cfg.layouts.find((l) => l.id === cfg.layoutAtual) || cfg.layouts[0];
+const pastaDe = (id) => cfg.pastas.find((p) => p.id === id);
+function acharTela(id) {
+  for (const p of cfg.pastas) { const t = p.telas.find((x) => x.id === id); if (t) return { p, t }; }
+  return null;
+}
+function telaDaConta(id) {
+  for (const p of cfg.pastas) { const t = p.telas.find((x) => x.contas.includes(id)); if (t) return { p, t }; }
+  return null;
+}
+// Todas as telas, na ordem da lateral (Ctrl+1…9 e Ctrl+Tab).
+const ordemTelas = () => cfg.pastas.flatMap((p) => p.telas.map((t) => ({ pasta: p.id, tela: t.id })));
 
 function permitir(wc, permissao, responder) {
   // O jogo não precisa de câmera, microfone, localização nem notificações.
@@ -94,7 +116,8 @@ function ligarConta(c) {
   wc.on('before-input-event', (e, input) => atalho(e, input, c.id));
   // No teste da guarda a página gasta memória mesmo escondida (a janela do teste pode abrir atrás de outras).
   if (TESTE) wc.loadFile(PAGINA_TESTE, { query: { conta: c.nome, vazar: CENARIO === 'guarda' ? 'sempre' : 'desenho' } });
-  else wc.loadURL(c.url);
+  // A extensão do HuntDesk liga antes do jogo abrir: o leitor dela precisa estar na página desde o começo.
+  else extensao.naConta(session.fromPartition(particao), cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(c.url); });
   medidor.evento(c.id, 'ligada');
 }
 
@@ -121,20 +144,35 @@ function mudarEstado(id, estado, nota) {
 
 // ---------- arrumação na janela ----------
 
-// Quem aparece agora: na grade, todas as contas do layout; nas abas, só a aba escolhida.
-function naTela() {
-  const L = layoutAtual();
-  const ids = L.contas.filter((id) => vivas.has(id));
-  if (L.modo !== 'abas') return ids;
-  const aba = ids.includes(L.aba) ? L.aba : ids[0];
-  return aba ? [aba] : [];
+// As contas da tela escolhida, ou da pasta inteira ('todas').
+function contasDoAtual() {
+  const p = pastaDe(cfg.atual.pasta);
+  if (!p) return [];
+  if (cfg.atual.tela === 'todas') return p.telas.flatMap((t) => t.contas);
+  const t = p.telas.find((x) => x.id === cfg.atual.tela);
+  return t ? t.contas : [];
+}
+// Quem aparece agora: as contas ligadas da tela escolhida (nenhuma com o app do HuntDesk na janela).
+const naTela = () => (mostrandoApp ? [] : contasDoAtual().filter((id) => vivas.has(id)));
+
+// Troca a tela (e sai do app do HuntDesk); conta desligada que ela mostra liga.
+function ver(pasta, tela) {
+  mostrandoApp = false;
+  cfg.atual = { pasta, tela };
+  for (const id of contasDoAtual()) { const c = conta(id); if (c && !vivas.has(id)) { c.ligada = true; ligarConta(c); } }
+}
+// Depois de tirar telas ou pastas: se a escolhida sumiu, fica a primeira tela da pasta (ou a pasta inteira).
+function corrigirAtual() {
+  const p = pastaDe(cfg.atual.pasta) || cfg.pastas[0];
+  const existe = cfg.atual.tela === 'todas' || p.telas.some((t) => t.id === cfg.atual.tela);
+  cfg.atual = { pasta: p.id, tela: existe && p.id === cfg.atual.pasta ? cfg.atual.tela : p.telas[0] ? p.telas[0].id : 'todas' };
 }
 
-function grade(n, largura, altura, colunas) {
+function grade(n, largura, altura) {
   if (!n) return [];
-  // Auto: quase quadrado; com o monitor em pé, mais linhas que colunas.
+  // Quase quadrado; com o monitor em pé, mais linhas que colunas.
   const lado = Math.ceil(Math.sqrt(n));
-  const cols = colunas > 0 ? Math.min(colunas, n) : largura >= altura ? lado : Math.ceil(n / lado);
+  const cols = largura >= altura ? lado : Math.ceil(n / lado);
   const linhas = Math.ceil(n / cols);
   const cw = (largura - VAO * (cols - 1)) / cols;
   const ch = (altura - VAO * (linhas - 1)) / linhas;
@@ -150,13 +188,14 @@ function grade(n, largura, altura, colunas) {
 function arrumar() {
   if (!win) return;
   const [largura, altura] = win.getContentSize();
-  // Até a barra informar o espaço, conta com a lateral (200 px aberta, 56 recolhida) e a barra de baixo (36 px).
-  const lat = cfg.visual.lateral ? 200 : 56;
+  // Até a barra informar o espaço, conta com a lateral (220 px aberta, 64 recolhida) e a barra de baixo (36 px).
+  const lat = cfg.visual.lateral ? 220 : 64;
   const a = area || { x: lat, y: 0, width: largura - lat, height: altura - 36 };
   const ids = naTela();
-  const caixas = grade(ids.length, Math.max(0, a.width - 2 * VAO), Math.max(0, a.height - 2 * VAO), layoutAtual().colunas);
+  const caixas = grade(ids.length, Math.max(0, a.width - 2 * VAO), Math.max(0, a.height - 2 * VAO));
   celulas = ids.map((id, i) => ({ id, ...caixas[i], x: caixas[i].x + a.x + VAO, y: caixas[i].y + a.y + VAO }));
-  const faixa = cfg.visual.faixas ? FAIXA : 0;
+  // Com uma conta só, a lateral já diz qual é: o jogo usa o quadro inteiro. Com várias, a faixa diz qual é qual.
+  const faixa = celulas.length > 1 ? FAIXA : 0;
   const ficam = new Set(ids);
   for (const [id, v] of vivas) {
     if (v.presa && !ficam.has(id)) {
@@ -176,31 +215,63 @@ function arrumar() {
     v.view.setBounds({ x: cel.x + 1, y: cel.y + 1 + faixa, width: Math.max(0, cel.width - 2), height: Math.max(0, cel.height - 2 - faixa) });
     v.view.setVisible(v.estado !== 'caiu');
   }
-  // Conta que entrou na tela fica por cima de tudo; a janelinha aberta volta para cima dela.
-  if (sobreAberto) {
-    win.contentView.addChildView(sobre);
-    sobre.setBounds({ x: 0, y: 0, width: largura, height: altura });
+  // O app do HuntDesk ocupa o espaço todo das contas; fora dele, sai da janela e continua aberto.
+  if (mostrandoApp) {
+    const vista = vistaDoApp();
+    if (!win.contentView.children.includes(vista)) win.contentView.addChildView(vista);
+    vista.setBounds({ x: a.x, y: a.y, width: Math.max(0, a.width), height: Math.max(0, a.height) });
+  } else if (appVista && win.contentView.children.includes(appVista)) {
+    win.contentView.removeChildView(appVista);
   }
   enviarEstado();
 }
 
 // ---------- janelinhas ----------
 
-// As páginas do jogo ficam por cima de tudo o que a barra desenha; por isso os detalhes da conta e os painéis abrem
-// numa camada própria, transparente, posta acima das contas só enquanto estão abertos.
+// As páginas do jogo ficam por cima de tudo o que a barra desenha; por isso a janelinha da conta e os painéis abrem
+// numa janela pequena própria, presa à principal (sempre por cima dela). Nada escurece atrás: o jogo continua à vista.
+// Fecha com Esc, ✕ ou um clique em qualquer lugar da janela principal.
+const qualSobre = (d) => (d ? d.tela || d.pasta || d.painel : null);
+
 function abrirSobre(dados) {
   sobreAberto = dados;
+  abertoEm = Date.now();
+  alturaSobre = 0;
   sobre.webContents.send('abrir', dados);
-  arrumar();
-  sobre.webContents.focus();
+  enviarEstado();
+  // Aparece quando a janelinha disser a altura do que vai mostrar (ou logo depois, se demorar).
+  clearTimeout(timerSobre);
+  timerSobre = setTimeout(posicionarSobre, 400);
+}
+
+function posicionarSobre() {
+  clearTimeout(timerSobre);
+  if (!sobreAberto || !win || sobre.isDestroyed()) return;
+  const c = win.getContentBounds();
+  const a = area || { x: 0, y: 0, width: c.width, height: c.height };
+  const menu = sobreAberto.tipo !== 'painel';
+  const largura = Math.min(menu ? 300 : sobreAberto.painel === 'medicoes' ? 980 : 620, c.width - 20);
+  const altura = Math.min(alturaSobre || 400, c.height - 20);
+  // O menuzinho da tela ou da pasta abre ao lado da linha clicada; os painéis, no meio do espaço das contas. Nunca
+  // saem da janela.
+  let x = menu ? sobreAberto.x + 6 : a.x + (a.width - largura) / 2;
+  let y = menu ? sobreAberto.y - 6 : a.y + (a.height - altura) / 2;
+  x = Math.max(10, Math.min(x, c.width - largura - 10));
+  y = Math.max(10, Math.min(y, c.height - altura - 10));
+  sobre.setBounds({ x: Math.round(c.x + x), y: Math.round(c.y + y), width: Math.round(largura), height: Math.round(altura) });
+  // No autoteste não tira o teclado de quem está usando o PC.
+  if (!sobre.isVisible()) { if (TESTE) sobre.showInactive(); else sobre.show(); }
 }
 
 function fecharSobre() {
+  clearTimeout(timerSobre);
   if (!sobreAberto) return;
+  sobreFechado = { qual: qualSobre(sobreAberto), quando: Date.now() };
   sobreAberto = null;
-  sobre.webContents.send('abrir', null);
-  win.contentView.removeChildView(sobre);
-  win.webContents.focus();
+  if (sobre && !sobre.isDestroyed()) {
+    sobre.webContents.send('abrir', null);
+    sobre.hide();
+  }
   enviarEstado();
 }
 
@@ -211,15 +282,19 @@ function atalho(e, input, id) {
   const ctrl = input.control || input.meta;
   const tecla = input.key.toLowerCase();
   if (tecla === 'f5' || (ctrl && tecla === 'r')) {
-    // F5 recarrega só a conta em que você está, nunca todas.
+    // F5 recarrega só a conta em que você está, nunca todas (dentro do app do HuntDesk, recarrega o app).
     e.preventDefault();
     const alvo = id || foco;
-    if (alvo) acao('conta:recarregar', { id: alvo });
+    if (alvo === 'app') appVista.webContents.reload();
+    else if (alvo) acao('conta:recarregar', { id: alvo });
   } else if (ctrl && /^[1-9]$/.test(tecla)) {
-    // Ctrl+1, Ctrl+2…: troca de aba (no modo abas).
-    const L = layoutAtual();
-    const alvo = L.contas[Number(tecla) - 1];
-    if (L.modo === 'abas' && alvo) { e.preventDefault(); acao('layout:aba', { id: alvo }); }
+    // Ctrl+1, Ctrl+2…: vai para a tela daquele número na lateral.
+    const alvo = ordemTelas()[Number(tecla) - 1];
+    if (alvo) { e.preventDefault(); acao('tela:ver', alvo); }
+  } else if (ctrl && tecla === 'tab') {
+    // Ctrl+Tab passa para a próxima tela; Ctrl+Shift+Tab, para a anterior (como as abas do Chrome).
+    e.preventDefault();
+    proximaTela(input.shift ? -1 : 1);
   } else if (tecla === 'f11') {
     e.preventDefault();
     acao('janela:cheia');
@@ -230,28 +305,41 @@ function atalho(e, input, id) {
   }
 }
 
+// Põe o item na posição i da lista (i < 0 = no fim).
+const posicionar = (lista, item, i) => { if (i < 0) lista.push(item); else lista.splice(i, 0, item); };
+
+function proximaTela(passo) {
+  const todas = ordemTelas();
+  if (!todas.length) return;
+  const i = todas.findIndex((t) => t.pasta === cfg.atual.pasta && t.tela === cfg.atual.tela);
+  acao('tela:ver', i < 0 ? todas[0] : todas[(i + passo + todas.length) % todas.length]);
+}
+
 // ---------- ações (sempre de um botão ou atalho do jogador) ----------
 
-function novaConta({ nome, url }) {
+// A conta nova ganha uma tela só dela na pasta escolhida (ou na que está na janela) e já aparece.
+function novaConta({ nome, url, pasta }) {
   const id = 'conta' + cfg.proximaConta++;
   const c = { id, nome: config.nomeValido(nome, 'Conta ' + id.slice(5)), url: config.enderecoValido(url) ? url : config.JOGO_PADRAO, freio: true, ligada: true };
   cfg.contas.push(c);
-  const L = layoutAtual();
-  L.contas.push(id);
-  if (L.modo === 'abas') L.aba = id;
+  const p = pastaDe(pasta) || pastaDe(cfg.atual.pasta) || cfg.pastas[0];
+  const t = { id: 'tela' + cfg.proximaTela++, contas: [id] };
+  p.telas.push(t);
+  p.aberta = true;
   ligarConta(c);
+  ver(p.id, t.id);
 }
 
 function removerConta(id) {
   desligarConta(id);
   cfg.contas = cfg.contas.filter((c) => c.id !== id);
-  for (const L of cfg.layouts) {
-    L.contas = L.contas.filter((x) => x !== id);
-    if (L.aba === id) L.aba = L.contas[0] || null;
+  for (const p of cfg.pastas) {
+    for (const t of p.telas) t.contas = t.contas.filter((x) => x !== id);
+    p.telas = p.telas.filter((t) => t.contas.length);
   }
+  corrigirAtual();
   if (foco === id) foco = null;
   historicos.delete(id);
-  if (sobreAberto && sobreAberto.id === id) fecharSobre();
   // Apaga o login e os dados guardados desta conta; o número dela nunca é reaproveitado.
   const ses = session.fromPartition('persist:' + id);
   ses.clearStorageData().then(() => ses.clearCache()).catch(() => {});
@@ -275,6 +363,75 @@ async function aliviar(id, quem) {
   } finally {
     try { if (dbg.isAttached()) dbg.detach(); } catch (e) { /* já saiu */ }
   }
+}
+
+// Janela do HuntDesk: a tela da extensão (a que o Chrome abre pelo ícone dela), com a captura da conta escolhida, o
+// servidor do PC e a conta na nuvem. O que o jogador muda ali vale para todas as contas: o navegador copia para elas.
+async function abrirHuntDesk() {
+  if (janelaHuntDesk) { janelaHuntDesk.focus(); return; }
+  const id = foco && vivas.has(foco) ? foco : naTela()[0] || [...vivas.keys()][0];
+  const aviso = (detail) => dialog.showMessageBox(win, { type: 'info', title: 'HuntDesk', message: 'App do HuntDesk', detail });
+  if (!id) return aviso('Ligue uma conta do jogo primeiro: a janela do HuntDesk mostra o que a conta está lendo.');
+  const ses = session.fromPartition('persist:' + id);
+  if (!(await extensao.naConta(ses, null))) return aviso('A extensão do HuntDesk ainda não foi baixada. Confira a internet e tente de novo daqui a pouco.');
+  const j = janelaHuntDesk = new BrowserWindow({
+    parent: win, width: 360, height: 600, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true,
+    title: 'HuntDesk · ' + conta(id).nome + ' (vale para todas as contas)', icon: path.join(__dirname, 'ui', 'icone.png'),
+    backgroundColor: '#0a0c11',
+    webPreferences: { session: ses, preload: path.join(__dirname, 'extensao-janela.js'), sandbox: true, contextIsolation: true },
+  });
+  j.on('page-title-updated', (e) => e.preventDefault()); // fica o título com o nome da conta
+  j.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  // Confere o que a extensão guardou e, se mudou, grava e copia para as outras contas ligadas.
+  const conferir = async () => {
+    if (j.isDestroyed()) return;
+    let l;
+    try { l = await Extensao.ler(j.webContents); } catch (e) { return; }
+    if (!l || JSON.stringify(l) === JSON.stringify(cfg.huntdesk)) return;
+    cfg.huntdesk = l;
+    config.salvar(cfg);
+    for (const outra of vivas.keys()) {
+      if (outra !== id) extensao.gravar(session.fromPartition('persist:' + outra), l).catch((e) => medidor.evento(outra, 'ligação com o HuntDesk não copiada: ' + e.message));
+    }
+    medidor.evento('programa', `ligação com o HuntDesk mudou (PC ${l.pc ? 'sim' : 'não'}, nuvem ${l.cloud ? 'sim' : 'não'}); copiada para as contas`);
+  };
+  const timer = setInterval(conferir, 1500);
+  let fechando = false;
+  j.on('close', (e) => {
+    if (fechando) return;
+    e.preventDefault(); // uma última conferida antes de fechar
+    fechando = true;
+    conferir().finally(() => { if (!j.isDestroyed()) j.destroy(); });
+  });
+  j.on('closed', () => { clearInterval(timer); janelaHuntDesk = null; });
+  j.loadURL(`chrome-extension://${ID_EXTENSAO}/popup.html`);
+}
+
+// App do HuntDesk (o site) dentro da janela, no lugar das contas: o cartão "HuntDesk" da lateral troca a tela para ele
+// e o clique numa tela volta ao jogo. O login dele fica num cofre próprio, separado das contas do jogo. Só abre páginas
+// do huntdesk.com.br; link para outro site vai para o navegador padrão do Windows. Depois de aberto, fica aberto (fora
+// da tela, como uma conta), para não pedir login nem recarregar a cada troca.
+function vistaDoApp() {
+  if (appVista) return appVista;
+  const particao = 'persist:app-huntdesk';
+  session.fromPartition(particao).setPermissionRequestHandler(permitir);
+  appVista = new WebContentsView({ webPreferences: { partition: particao, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  appVista.setBackgroundColor('#0a0c11');
+  const wc = appVista.webContents;
+  const doHuntDesk = (url) => { try { const u = new URL(url); return u.protocol === 'https:' && /(^|\.)huntdesk\.com\.br$/.test(u.hostname); } catch (e) { return false; } };
+  const fora = (url) => { if (/^https?:/i.test(url)) shell.openExternal(url); };
+  wc.setWindowOpenHandler(({ url }) => {
+    if (doHuntDesk(url)) wc.loadURL(url); else fora(url);
+    return { action: 'deny' };
+  });
+  wc.on('will-navigate', (e, url) => { if (!doHuntDesk(url)) { e.preventDefault(); fora(url); } });
+  wc.on('before-input-event', (e, input) => atalho(e, input, 'app'));
+  wc.on('focus', fecharSobre);
+  // Nos testes não há internet: abre a página de teste no lugar do site.
+  if (TESTE) wc.loadFile(PAGINA_TESTE, { query: { conta: 'App do HuntDesk' } });
+  else wc.loadURL(APP_HUNTDESK);
+  medidor.evento('programa', 'app do HuntDesk aberto');
+  return appVista;
 }
 
 // Diagnóstico (só pela linha de comando, --diagnostico): a cada 5 min anota o que cada página tem — áreas de desenho e
@@ -303,18 +460,81 @@ async function diagnosticar(id) {
 }
 
 const ACOES = {
+  // Põe a conta na janela: liga, se estiver desligada, e vai para a tela dela (se ainda não estiver à vista).
   'conta:mostrar': ({ id }) => {
     const c = conta(id);
-    if (!c) return;
-    const L = layoutAtual();
-    if (!L.contas.includes(id)) L.contas.push(id);
-    if (L.modo === 'abas') L.aba = id;
+    const a = telaDaConta(id);
+    if (!c || !a) return;
     if (!vivas.has(id)) { c.ligada = true; ligarConta(c); }
+    if (mostrandoApp || !contasDoAtual().includes(id)) ver(a.p.id, a.t.id);
   },
-  'conta:esconder': ({ id }) => {
-    const L = layoutAtual();
-    L.contas = L.contas.filter((x) => x !== id);
-    if (L.aba === id) L.aba = L.contas[0] || null;
+  // Cartão "HuntDesk" da lateral (e o item do Menu ▴): o app do HuntDesk no lugar das contas.
+  'app:mostrar': () => { mostrandoApp = true; },
+  'tela:ver': ({ pasta, tela }) => {
+    const p = pastaDe(pasta);
+    if (p && (tela === 'todas' || p.telas.some((t) => t.id === tela))) ver(p.id, tela);
+  },
+  // Junta duas telas da mesma pasta numa só (as contas lado a lado), com no máximo 4 contas. A tela juntada fica no
+  // lugar da que estava mais para cima na lateral.
+  'tela:juntar': ({ tela, com }) => {
+    const a = acharTela(tela);
+    const b = acharTela(com);
+    if (!a || !b || a.t === b.t || a.p !== b.p || a.t.contas.length + b.t.contas.length > config.MAX_POR_TELA) return;
+    const lugar = Math.min(a.p.telas.indexOf(a.t), a.p.telas.indexOf(b.t));
+    a.t.contas.push(...b.t.contas);
+    a.p.telas = a.p.telas.filter((t) => t !== a.t && t !== b.t);
+    a.p.telas.splice(lugar, 0, a.t);
+    ver(a.p.id, a.t.id);
+  },
+  // Arrastar na lateral: a tela vai para antes da tela `antes` (null = fim) na pasta `pasta`, que pode ser outra.
+  'tela:posicionar': ({ tela, pasta, antes }) => {
+    const a = acharTela(tela);
+    const q = pastaDe(pasta);
+    if (!a || !q || antes === tela) return;
+    a.p.telas = a.p.telas.filter((t) => t !== a.t);
+    posicionar(q.telas, a.t, q.telas.findIndex((t) => t.id === antes));
+    q.aberta = true;
+    if (cfg.atual.tela === tela) cfg.atual.pasta = q.id; // a tela na janela continua na janela
+    corrigirAtual();
+  },
+  'pasta:posicionar': ({ id, antes }) => {
+    const p = pastaDe(id);
+    if (!p || antes === id) return;
+    cfg.pastas = cfg.pastas.filter((x) => x !== p);
+    posicionar(cfg.pastas, p, cfg.pastas.findIndex((x) => x.id === antes));
+  },
+  'conta:cor': ({ id, cor }) => {
+    const c = conta(id);
+    if (c && Number.isInteger(cor) && cor >= 0 && cor < config.CORES) c.cor = cor;
+  },
+  // Cada conta da tela volta para uma tela só dela, no mesmo lugar da lateral; a primeira fica com a tela de antes.
+  'tela:separar': ({ tela }) => {
+    const a = acharTela(tela);
+    if (!a || a.t.contas.length < 2) return;
+    const novas = a.t.contas.map((id, i) => ({ id: i ? 'tela' + cfg.proximaTela++ : a.t.id, contas: [id] }));
+    a.p.telas.splice(a.p.telas.indexOf(a.t), 1, ...novas);
+  },
+  'tela:mover': ({ tela, para }) => {
+    const a = acharTela(tela);
+    const q = pastaDe(para);
+    if (!a || !q || a.p === q) return;
+    a.p.telas = a.p.telas.filter((t) => t !== a.t);
+    q.telas.push(a.t);
+    q.aberta = true;
+    corrigirAtual();
+  },
+  'pasta:nova': ({ nome }) => {
+    const id = 'pasta' + cfg.proximaPasta++;
+    cfg.pastas.push({ id, nome: config.nomeValido(nome, 'Pasta nova'), aberta: true, telas: [] });
+  },
+  'pasta:renomear': ({ id, nome }) => { const p = pastaDe(id); if (p) p.nome = config.nomeValido(nome, p.nome); },
+  'pasta:abrir': ({ id }) => { const p = pastaDe(id); if (p) p.aberta = !p.aberta; },
+  // Só pasta vazia, e nunca a última.
+  'pasta:apagar': ({ id }) => {
+    const p = pastaDe(id);
+    if (!p || p.telas.length || cfg.pastas.length <= 1) return;
+    cfg.pastas = cfg.pastas.filter((x) => x !== p);
+    corrigirAtual();
   },
   'conta:freio': ({ id, ligado }) => {
     const c = conta(id);
@@ -339,7 +559,6 @@ const ACOES = {
     if (v) v.view.webContents.setAudioMuted(c.mudo);
   },
   'visual:lateral': () => { cfg.visual.lateral = !cfg.visual.lateral; },
-  'visual:faixas': () => { cfg.visual.faixas = !cfg.visual.faixas; },
   'janela:cheia': () => win.setFullScreen(!win.isFullScreen()),
   'conta:aliviar': ({ id }) => aliviar(id, 'pelo jogador'),
   'app:reiniciar': () => atualizador.reiniciar(),
@@ -355,25 +574,6 @@ const ACOES = {
     if (v && !TESTE) v.view.webContents.loadURL(url);
   },
   'conta:remover': ({ id }) => { if (conta(id)) removerConta(id); },
-  'layout:modo': ({ modo }) => { if (config.MODOS.includes(modo)) layoutAtual().modo = modo; },
-  'layout:colunas': ({ colunas }) => {
-    const n = Number(colunas);
-    if (Number.isInteger(n) && n >= 0 && n <= config.MAX_COLUNAS) layoutAtual().colunas = n;
-  },
-  'layout:aba': ({ id }) => ACOES['conta:mostrar']({ id }),
-  'layout:escolher': ({ id }) => {
-    if (!cfg.layouts.some((l) => l.id === id)) return;
-    cfg.layoutAtual = id;
-    // Conta que o layout mostra e estava desligada volta a ligar.
-    for (const cid of layoutAtual().contas) { const c = conta(cid); if (c && !vivas.has(cid)) { c.ligada = true; ligarConta(c); } }
-  },
-  'layout:novo': ({ nome }) => {
-    // O layout novo começa como cópia da tela de agora.
-    const L = layoutAtual();
-    const novo = { ...L, id: 'layout' + cfg.proximoLayout++, nome: config.nomeValido(nome, 'Layout ' + (cfg.layouts.length + 1)), contas: [...L.contas] };
-    cfg.layouts.push(novo);
-    cfg.layoutAtual = novo.id;
-  },
   'guarda:config': (dados) => {
     cfg.guarda = config.limparGuarda({ ...cfg.guarda, ...dados }, cfg.guarda);
     medidor.evento('guarda', `limite ${cfg.guarda.limiteMb} MB, ${cfg.guarda.acao === 'recarregar' ? 'recarrega sozinha' : 'só avisa'}, total ${cfg.guarda.avisoTotalMb || 'sem limite'}`);
@@ -389,12 +589,6 @@ const ACOES = {
     // Reabre sem o --economico da linha de comando, para valer o que o jogador escolheu.
     app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--economico') });
     app.quit();
-  },
-  'layout:renomear':({ id, nome }) => { const L = cfg.layouts.find((l) => l.id === id); if (L) L.nome = config.nomeValido(nome, L.nome); },
-  'layout:apagar': ({ id }) => {
-    if (cfg.layouts.length <= 1) return;
-    cfg.layouts = cfg.layouts.filter((l) => l.id !== id);
-    if (cfg.layoutAtual === id) cfg.layoutAtual = cfg.layouts[0].id;
   },
 };
 
@@ -416,11 +610,12 @@ function enviarEstado() {
     inicio: medidor.inicio,
     contas: cfg.contas.map((c) => {
       const v = vivas.get(c.id);
-      return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, ligada: !!v, estado: v ? v.estado : 'desligada',
+      return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, cor: c.cor, ligada: !!v, estado: v ? v.estado : 'desligada',
         naTela: !!(v && v.presa), desde: v ? v.desde : null };
     }),
-    layouts: cfg.layouts.map(({ id, nome }) => ({ id, nome })),
-    layout: layoutAtual(),
+    pastas: cfg.pastas,
+    atual: cfg.atual,
+    maxPorTela: config.MAX_POR_TELA,
     celulas,
     foco,
     padrao: config.JOGO_PADRAO,
@@ -432,13 +627,15 @@ function enviarEstado() {
     abrirAoIniciar: cfg.abrirAoIniciar,
     economico: { escolhido: cfg.economico, agora: ECONOMICO },
     visual: cfg.visual,
+    faixas: celulas.length > 1,
+    app: mostrandoApp,
     cheia: win.isFullScreen(),
     aberto: sobreAberto,
     series: Object.fromEntries(series),
     historico: Object.fromEntries(historicos),
   };
   win.webContents.send('estado', estado);
-  if (sobre) sobre.webContents.send('estado', estado);
+  if (sobre && !sobre.isDestroyed()) sobre.webContents.send('estado', estado);
 }
 
 // Últimos 5 min (30 medições) de memória e processador de cada conta ligada.
@@ -489,11 +686,23 @@ function criarJanela() {
   });
   if (j.maximizada) win.maximize();
   win.loadFile(path.join(__dirname, 'ui', 'index.html'));
-  sobre = new WebContentsView({ webPreferences: { preload: path.join(__dirname, 'ui', 'preload.js'), contextIsolation: true, sandbox: true } });
-  sobre.setBackgroundColor('#00000000'); // transparente: o jogo aparece escurecido atrás da janelinha
-  sobre.webContents.loadFile(path.join(__dirname, 'ui', 'sobre.html'));
+  sobre = new BrowserWindow({
+    parent: win, show: false, frame: false, resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+    skipTaskbar: true, width: 270, height: 400, backgroundColor: '#10141c',
+    webPreferences: { preload: path.join(__dirname, 'ui', 'preload.js'), contextIsolation: true, sandbox: true, backgroundThrottling: false },
+  });
+  sobre.loadFile(path.join(__dirname, 'ui', 'sobre.html'));
   sobre.webContents.on('did-finish-load', enviarEstado);
   sobre.webContents.on('before-input-event', (e, input) => atalho(e, input, null));
+  // O da tela e o da pasta são menuzinhos: somem quando o jogador vai para outro lugar. Os painéis ficam até fechar
+  // (podem pedir confirmação, que tira o foco deles).
+  sobre.on('blur', () => { if (sobreAberto && sobreAberto.tipo !== 'painel') fecharSobre(); });
+  sobre.on('close', (e) => { if (!saindo) { e.preventDefault(); fecharSobre(); } }); // Alt+F4 só esconde
+  win.on('close', () => { saindo = true; });
+  // Clique na janela principal (barra ou jogo) fecha a janelinha; logo depois de abrir não (o Menu ▴ do Windows, ao
+  // fechar, devolve o foco à principal).
+  win.on('focus', () => { if (Date.now() - abertoEm > 400) fecharSobre(); });
+  for (const ev of ['move', 'minimize', 'enter-full-screen', 'leave-full-screen']) win.on(ev, fecharSobre);
   if (app.isPackaged) apagarPastaAntiga(path.join(app.getPath('userData'), 'medicoes')); // a que a 0.2.0 deixava
   medidor = new Medidor({
     fonte: () => cfg.contas.map((c) => {
@@ -527,10 +736,12 @@ function criarJanela() {
     notificar,
     evento: (id, nota) => medidor.evento(id, nota),
   });
+  // Nos testes as contas abrem a página de teste, sem extensão e sem internet.
+  if (!TESTE) { extensao = new Extensao({ evento: (nota) => medidor.evento('programa', nota) }); extensao.comecar(); }
   // Abrir as contas ao iniciar é escolha do jogador (Configurações); senão, cada uma espera ele apertar Ligar.
   if (cfg.abrirAoIniciar) cfg.contas.filter((c) => c.ligada).forEach(ligarConta);
   arrumar();
-  win.on('resize', () => { arrumar(); guardarJanela(); });
+  win.on('resize', () => { fecharSobre(); arrumar(); guardarJanela(); });
   win.on('enter-full-screen', enviarEstado);
   win.on('leave-full-screen', enviarEstado);
   win.on('move', guardarJanela);
@@ -546,7 +757,7 @@ function criarJanela() {
   if (EXPERIMENTO_ALIVIO) setInterval(() => ['conta1', 'conta2'].forEach((id) => aliviar(id, 'pelo experimento')), 5 * 60000);
   if (AUTOTESTE) {
     require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, abrir: abrirSobre, fechar: fecharSobre,
-      estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre }), sair: () => app.quit() });
+      estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre, app: appVista, mostrandoApp }), sair: () => app.quit() });
   }
 }
 
@@ -563,16 +774,29 @@ ipcMain.on('area', (e, r) => {
 });
 ipcMain.on('abrir', (e, d) => {
   if (!daBarra(e) || !d) return;
+  // O ⋯ da conta com a janelinha dela aberta: o clique já a fechou (foco na principal) e não abre de novo.
+  if (qualSobre(d) === sobreFechado.qual && Date.now() - sobreFechado.quando < 400) return;
   const n = (v) => Math.round(Number(v)) || 0;
-  if (d.tipo === 'conta' && conta(d.id)) abrirSobre({ tipo: 'conta', id: d.id, x: n(d.x), y: n(d.y) });
+  if (d.tipo === 'tela' && acharTela(d.tela)) abrirSobre({ tipo: 'tela', tela: d.tela, x: n(d.x), y: n(d.y) });
+  else if (d.tipo === 'pasta' && pastaDe(d.pasta)) abrirSobre({ tipo: 'pasta', pasta: d.pasta, x: n(d.x), y: n(d.y), nova: d.nova === true });
   else if (d.tipo === 'painel' && PAINEIS.includes(d.painel)) abrirSobre({ tipo: 'painel', painel: d.painel });
 });
 ipcMain.on('fechar', (e) => { if (daBarra(e)) fecharSobre(); });
+// A janelinha diz a altura do que mostra; a janela dela acompanha (sem passar do tamanho da principal).
+ipcMain.on('tamanho', (e, t) => {
+  if (!sobre || e.sender !== sobre.webContents || !sobreAberto || !t) return;
+  const altura = Math.round(Number(t.altura));
+  if (!(altura > 0 && altura < 20000)) return;
+  alturaSobre = altura;
+  posicionarSobre();
+});
 // Menu ▴ da barra de baixo: o menu do próprio Windows, que aparece por cima das contas.
 ipcMain.on('menu', (e) => {
   if (!daBarra(e)) return;
   const item = (label, painel) => ({ label, click: () => abrirSobre({ tipo: 'painel', painel }) });
-  Menu.buildFromTemplate([item('Medições', 'medicoes'), item('Contas', 'contas'), item('Layouts', 'layouts'), item('Configurações', 'config'),
+  Menu.buildFromTemplate([item('Medições', 'medicoes'), item('Contas', 'contas'), item('Configurações', 'config'),
+    { type: 'separator' }, { label: 'Abrir o app do HuntDesk', click: () => acao('app:mostrar') },
+    { label: 'Extensão HuntDesk…', enabled: !!extensao, click: abrirHuntDesk },
     { type: 'separator' }, { label: 'HuntDesk ' + app.getVersion(), enabled: false }]).popup({ window: win });
 });
 ipcMain.on('abrir-medicoes', (e) => { if (daBarra(e) && medidor.arquivo) shell.openPath(medidor.pasta); });
@@ -585,10 +809,13 @@ if (!app.requestSingleInstanceLock()) {
   app.setAppUserModelId('br.com.huntdesk.navegador'); // o Windows mostra os avisos com o nome do programa
   app.whenReady().then(criarJanela);
   app.on('before-quit', () => {
+    saindo = true;
     if (medidor) medidor.parar();
+    if (extensao) extensao.parar();
     if (cfg) config.gravarAgora(cfg);
     // Grava cookies e login no disco antes de fechar, para nenhuma conta pedir login de novo.
     if (cfg) cfg.contas.forEach((c) => session.fromPartition('persist:' + c.id).flushStorageData());
+    if (appVista) session.fromPartition('persist:app-huntdesk').flushStorageData(); // o login do app do HuntDesk
   });
   app.on('window-all-closed', () => app.quit());
 }

@@ -72,4 +72,6 @@ huntdesk.com.br/privacidade, com o texto abaixo.
 - Para saber se há versão nova, o navegador consulta a página de versões do projeto no GitHub. A versão da loja é
   atualizada pela própria Microsoft.
 - Os sites dos jogos que você abre têm as próprias regras de privacidade.
-- *(Quando o painel do HuntDesk entrar no navegador, explicar aqui o que é enviado para a sua conta HuntDesk.)*
+- Em cada conta fica ligada a extensão do HuntDesk, baixada da loja do Chrome ao abrir o navegador e a cada 6 horas.
+  Ela lê os dados do jogo e só os envia para o app do HuntDesk (no seu PC ou na sua conta HuntDesk) depois que você a
+  conecta. O que a sua conta HuntDesk guarda segue a política de privacidade do HuntDesk.

@@ -35,31 +35,64 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--gold); }
 .ini.mini { width: 18px; height: 18px; font-size: 9px; border-radius: 5px; }
 .cor0 { background: var(--gold); } .cor1 { background: var(--m1); } .cor2 { background: var(--m2); }
 .cor3 { background: var(--ok); } .cor4 { background: var(--warn); } .cor5 { background: var(--danger); }
+.cor6 { background: #f472b6; } .cor7 { background: #2dd4bf; }
 
 /* ---------- barra: lateral, área das contas e barra de baixo ---------- */
 #app { height: 100%; display: grid; grid-template-columns: auto 1fr; grid-template-rows: minmax(0, 1fr) 36px; }
 
-#lado { width: 200px; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px 8px; overflow: hidden; }
-#lado.recolhida { width: 56px; }
+#lado { width: 220px; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px 8px; overflow: hidden; }
+#lado.recolhida { width: 64px; }
 .marca { display: flex; align-items: center; gap: 8px; padding: 0 4px 12px; font-family: Cinzel, Georgia, serif; font-weight: 700; color: var(--gold); font-size: 15px; white-space: nowrap; }
 .marca img { width: 26px; height: 26px; border-radius: 7px; flex: none; }
-#lista { display: flex; flex-direction: column; gap: 4px; overflow: auto; min-height: 0; }
-.cartao { display: grid; grid-template-columns: 30px 1fr; gap: 0 9px; align-items: center; padding: 6px; border: 1px solid transparent; border-radius: 10px;
-  background: transparent; text-align: left; width: 100%; }
-.cartao:hover { background: rgba(255, 255, 255, .04); border-color: transparent; }
-.cartao.aberta { background: var(--card); border-color: var(--gold-borda); }
-.cartao.fora .ini, .cartao.desligada .ini { opacity: .5; }
-.cartao.desligada .nome { color: var(--muted); }
-.cartao .ini { grid-row: span 2; }
-.nome { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#lista { display: flex; flex-direction: column; gap: 2px; overflow: auto; min-height: 0; }
+
+/* pasta: o nome mostra todas as contas dela juntas; a setinha abre e fecha */
+.pasta { display: flex; align-items: center; gap: 6px; padding: 5px 4px 5px 2px; margin-top: 6px; border: 1px solid transparent; border-radius: 8px;
+  cursor: pointer; user-select: none; outline: none; color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.pasta:first-child { margin-top: 0; }
+.pasta:hover { background: rgba(255, 255, 255, .04); color: var(--text); }
+.pasta.atual { color: var(--gold); border-color: var(--gold-borda); background: var(--gold-soft); }
+.pasta.menu { background: var(--card); }
+.seta-pasta { width: 16px; text-align: center; flex: none; }
+.nome-pasta { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nome-pasta .n { font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+/* tela: uma linha com 1 a 4 contas lado a lado */
+.tela { display: grid; grid-template-columns: auto 1fr auto; gap: 0 8px; align-items: center; padding: 6px 4px 6px 8px; margin-left: 10px;
+  border: 1px solid transparent; border-radius: 10px; cursor: pointer; user-select: none; outline: none; }
+.tela:hover { background: rgba(255, 255, 255, .04); }
+.tela:focus-visible, .pasta:focus-visible { border-color: var(--gold); }
+.tela.atual { background: var(--card); border-color: var(--gold-borda); }
+.tela.menu { background: var(--card); }
+.siglas { display: flex; gap: 4px; grid-row: span 2; }
+.siglas .ini { width: 22px; height: 22px; font-size: 9px; border-radius: 6px; }
+.siglas .ini::after { width: 7px; height: 7px; right: -3px; bottom: -3px; }
+.siglas .ini.off { opacity: .45; }
+.nomes { font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .linha2 { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mais { margin-top: 6px; border-style: dashed; color: var(--muted); width: 100%; }
+.tela .dir { grid-column: 3; grid-row: 1 / span 2; }
+.tres { border: none; background: transparent; color: var(--muted); padding: 0 4px; height: 22px; font-size: 16px; line-height: 1; visibility: hidden; }
+.tres:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+.tela:hover .tres, .tela.menu .tres, .tela:focus-within .tres, .pasta:hover .tres, .pasta.menu .tres, .pasta:focus-within .tres { visibility: visible; }
+/* cartão do app do HuntDesk, em cima das pastas */
+.app-card { margin: 0 0 6px; padding-left: 6px; grid-template-columns: auto 1fr; }
+.app-card img { width: 26px; height: 26px; border-radius: 7px; grid-row: span 2; }
+#lado.recolhida .app-card { margin-left: 0; }
+/* arrastar: a linha arrastada fica apagada e uma risca dourada mostra onde ela vai cair */
+.arrastando { opacity: .45; }
+.tela.cai-antes, .pasta.cai-antes { box-shadow: inset 0 2px 0 var(--gold); }
+.tela.cai-depois, .pasta.cai-depois { box-shadow: inset 0 -2px 0 var(--gold); }
+.nova { margin: 2px 0 0 10px; padding: 4px 8px; border: none; background: transparent; color: var(--muted); text-align: left; font-size: 12px; }
+.nova:hover { color: var(--text); }
+.mais { margin-top: 10px; border-style: dashed; color: var(--muted); width: 100%; }
 .recolher { margin-top: auto; width: 100%; color: var(--muted); }
 .so-recolhida { display: none; }
 #lado.recolhida .some { display: none; }
 #lado.recolhida .so-recolhida { display: inline; }
 #lado.recolhida .marca { justify-content: center; padding: 0 0 12px; }
-#lado.recolhida .cartao { grid-template-columns: 30px; justify-content: center; padding: 5px 0; }
+#lado.recolhida .pasta { justify-content: center; padding: 4px 0; }
+#lado.recolhida .tela { grid-template-columns: 1fr; justify-items: center; margin-left: 0; padding: 5px 2px; }
+#lado.recolhida .siglas { flex-direction: column; grid-row: auto; gap: 3px; }
 #lado.recolhida .mais { padding: 3px 0; }
 
 #area { position: relative; min-width: 0; min-height: 0; background: var(--bg); }
@@ -95,18 +128,30 @@ body.sem-faixas .faixa { display: none; }
 .saude.ruim { background: rgba(248, 113, 113, .12); color: var(--danger); border-color: rgba(248, 113, 113, .4); }
 .saude i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .sep { width: 1px; height: 18px; background: var(--border); flex: none; }
-.junto { display: flex; }
-.junto button { border-radius: 0; }
-.junto button:first-child { border-radius: 8px 0 0 8px; }
-.junto button:last-child { border-radius: 0 8px 8px 0; border-left: none; }
 
-/* ---------- janelinhas (camada por cima das contas) ---------- */
-body.camada { background: transparent; }
-#fundo { position: fixed; inset: 0; background: rgba(0, 0, 0, .45); }
-.janela { position: fixed; background: var(--bg-2); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 50px rgba(0, 0, 0, .6); padding: 14px; max-height: calc(100% - 20px); overflow: auto; }
-#janela-conta { width: 300px; }
-#janela-painel { width: 620px; max-width: calc(100% - 32px); max-height: calc(100% - 40px); left: 50%; top: 50%; transform: translate(-50%, -50%); }
-#janela-painel.largo { width: 980px; }
+/* ---------- janelinhas (janela pequena presa à principal, do tamanho do que mostra) ---------- */
+body.camada { background: var(--bg-2); }
+.janela { background: var(--bg-2); border: 1px solid var(--border); padding: 14px; max-height: 100vh; overflow: auto; }
+#janela-menu { padding: 10px; }
+#janela-menu .cab-janela { margin-bottom: 4px; }
+#janela-menu details { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 6px; }
+#janela-menu summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+#janela-menu summary:hover { color: var(--text); }
+#janela-menu h4 { margin: 12px 0 4px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+#janela-menu .linha-form input { flex: 1; width: auto; }
+.linha-conta { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
+.linha-conta .t { min-width: 0; }
+.linha-conta .aviso-caixa { grid-column: 1 / -1; margin: 0; }
+.linha-conta .botoes { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
+.linha-conta .botoes button { font-size: 11px; padding: 2px 7px; }
+.linha-conta .botoes button.confirmar { border-color: var(--danger); color: var(--danger); white-space: normal; text-align: left; }
+.linha-conta .cores { grid-column: 1 / -1; display: flex; gap: 5px; }
+.amostra { width: 18px; height: 18px; padding: 0; border-radius: 5px; border: 2px solid transparent; }
+.amostra:hover { border-color: var(--muted); }
+.amostra.escolhida { border-color: var(--text); }
+.opcoes { display: flex; flex-direction: column; gap: 4px; }
+.opcoes button { text-align: left; }
+.opcoes.lado { flex-direction: row; flex-wrap: wrap; }
 .cab-janela { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .cab-janela .t { flex: 1; min-width: 0; }
 .cab-janela b { display: block; font-size: 15px; }

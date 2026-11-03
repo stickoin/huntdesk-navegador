@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('p0', {
   area: (r) => ipcRenderer.send('area', r),
   abrir: (dados) => ipcRenderer.send('abrir', dados),
   fechar: () => ipcRenderer.send('fechar'),
+  tamanho: (t) => ipcRenderer.send('tamanho', t),
   menu: () => ipcRenderer.send('menu'),
   abrirMedicoes: () => ipcRenderer.send('abrir-medicoes'),
   abrirDados: () => ipcRenderer.send('abrir-dados'),
