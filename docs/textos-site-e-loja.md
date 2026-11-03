@@ -1,6 +1,6 @@
-# Textos do navegador para o site e para a loja (rascunho para o dono revisar)
+# Textos do navegador para o site e para a loja
 
-Nada daqui foi publicado. A página do site é do projeto do HuntDesk: este arquivo serve para levar o texto para lá
+O dono dispensou a revisão em 02/11. A parte da loja vai para o Microsoft Store. A página do site é do projeto do HuntDesk: este arquivo serve para levar o texto para lá
 quando chegar a hora.
 
 ---
@@ -14,7 +14,10 @@ Quem joga é você: o navegador só organiza.
 
 **O que ele faz**
 - **Várias contas juntas.** Cada conta tem o próprio login guardado, sem janela anônima e sem perfil separado.
-- **Grade ou abas.** Todas lado a lado ou uma de cada vez. Você salva os seus layouts e troca com um clique.
+- **Pastas e telas.** Junte as contas em pastas (uma por jogo, por exemplo). Cada tela mostra de 1 a 4 contas lado a
+  lado, e um clique troca de tela. Arraste para mudar a ordem e dê uma cor a cada conta.
+- **Extensão e app do HuntDesk.** A extensão do HuntDesk já vem ligada em cada conta, e o app do HuntDesk abre dentro
+  do navegador.
 - **Memória sob controle.** Cada conta mostra quanto usa de memória e de processador. Você escolhe o limite. Se uma
   conta passar dele, o navegador avisa ou recarrega só aquela página, conforme a sua escolha.
 - **Mais leve.** Nos nossos testes com 4 contas caçando no Huntera durante 2 horas, ele ficou em até 7,9 GB, enquanto
@@ -44,7 +47,9 @@ Várias contas de jogos idle lado a lado, com login separado e controle de memó
 
 **Descrição:**
 O HuntDesk é um navegador para quem joga jogos idle e de navegador com várias contas. Abra quantas contas quiser, cada
-uma com o seu login guardado, em grade ou em abas, e salve os seus layouts.
+uma com o seu login guardado. Junte as contas em pastas e monte telas com até 4 contas lado a lado; um clique troca
+de tela, e você arrasta para mudar a ordem. A extensão do HuntDesk já vem ligada em cada conta, e o app do HuntDesk
+abre dentro do navegador.
 
 Cada conta mostra quanto usa de memória e de processador. Você escolhe um limite. Se uma conta passar dele, o
 HuntDesk avisa ou recarrega só aquela página, do jeito que você preferir. Contas escondidas gastam menos.
@@ -53,15 +58,17 @@ O HuntDesk nunca joga por você: não clica, não digita e não repete comandos.
 
 **Recursos (lista da loja):**
 - Várias contas com login separado
-- Grade ou abas, com layouts salvos
+- Pastas e telas com até 4 contas lado a lado
+- Extensão e app do HuntDesk dentro do navegador
 - Memória e processador de cada conta
 - Aviso ou recarga quando passa do limite
 - Freio para contas escondidas
 
 **Palavras-chave:** jogos idle, várias contas, multi conta, navegador para jogos, Huntera
 
-**Política de privacidade:** a loja exige um endereço. Sugestão: uma seção "Navegador" na página
-huntdesk.com.br/privacidade, com o texto abaixo.
+**Política de privacidade:** a loja exige um endereço. Por enquanto, a página `PRIVACIDADE.md` do GitHub
+(https://github.com/stickoin/huntdesk-navegador/blob/main/PRIVACIDADE.md), com o texto abaixo. Mais tarde pode ir para
+uma seção "Navegador" em huntdesk.com.br/privacidade.
 
 ---
 
