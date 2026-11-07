@@ -33,11 +33,14 @@ se você apertar **Reiniciar agora**.
 ## Seus dados
 
 - Logins e configurações ficam só no seu computador, em `%APPDATA%\HuntDesk Navegador`. As medições de memória
-  aparecem na tela, mas não são gravadas em arquivo.
+  aparecem na tela, mas não são gravadas em arquivo. Se a página de uma conta cair, o programa anota nessa pasta só a
+  data, o número da conta, o motivo e a memória daquele momento (arquivo `quedas.log`, com as últimas 50 quedas).
 - Desinstalar o programa **não apaga** essa pasta. Em **Configurações > Sobre** há um botão para abri-la.
 - O programa se conecta à internet só para:
   - ver se há versão nova, na página de versões do projeto no GitHub;
-  - baixar a extensão do HuntDesk da loja do Chrome, ao abrir e a cada 6 horas.
+  - baixar a extensão do HuntDesk da loja do Chrome, ao abrir e a cada 6 horas;
+  - abrir o app do HuntDesk e buscar a chave de ligação com a sua conta, se o site pedir e você aceitar. A chave fica
+    cifrada no seu computador.
 - A extensão do HuntDesk lê os dados do jogo e só os manda para o app do HuntDesk (no seu PC ou na sua conta
   HuntDesk) depois que você a conecta, em **Menu ▴ → Extensão HuntDesk…**.
 

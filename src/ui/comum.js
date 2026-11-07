@@ -2,6 +2,18 @@
 // Partes usadas pela barra (ui.js) e pelas janelinhas (sobre.js): números, siglas e o estado de cada conta.
 
 const ESTADOS = { ok: 'rodando', carregando: 'carregando…', travada: 'sem resposta', caiu: 'caiu', erro: 'erro ao abrir', desligada: 'desligada' };
+// O que cada motivo de queda quer dizer (os nomes vêm do Chrome).
+const QUEDAS = {
+  oom: 'A página ficou sem memória.',
+  'memory-eviction': 'O Chrome fechou a página para liberar memória.',
+  crashed: 'A página deu um erro interno do Chrome.',
+  'abnormal-exit': 'A página fechou de repente, por um erro.',
+  killed: 'Algo de fora fechou a página (o Windows ou outro programa).',
+  'clean-exit': 'A página se fechou sozinha, sem erro.',
+  'launch-failed': 'O Chrome não conseguiu abrir a página.',
+  'integrity-failure': 'O Windows bloqueou a página numa verificação de segurança.',
+};
+const motivoQueda = (m) => QUEDAS[m] || 'O Chrome fechou a página sem dizer o motivo.';
 const CORES = 8; // classes .cor0 a .cor7 no estilo.css; o jogador escolhe uma para cada conta
 const $ = (sel) => document.querySelector(sel);
 let E = null; // último estado recebido do programa

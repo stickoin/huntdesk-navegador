@@ -64,6 +64,9 @@ O HuntDesk nunca joga por você: não clica, não digita e não repete comandos.
 - Aviso ou recarga quando passa do limite
 - Freio para contas escondidas
 
+**Novidades da versão 0.4.0:** ícone novo, boas-vindas na primeira abertura e, quando a página de uma conta cai, a tela
+mostra o motivo. Os sites dos jogos deixam de ver o nome HuntDesk nas contas.
+
 **Palavras-chave:** jogos idle, várias contas, multi conta, navegador para jogos, jogos de navegador
 
 *(Sem nomes de jogos na loja: os jogos não são do dono, e a loja costuma recusar marcas de outros. Combinado em 03/11.)*
@@ -78,9 +81,16 @@ uma seção "Navegador" em huntdesk.com.br/privacidade.
 
 - O navegador guarda no seu computador os logins das contas e as suas configurações. Nada disso é enviado para nós.
 - As medições de memória aparecem só na tela, enquanto o programa está aberto; nenhuma é gravada em arquivo.
+- Se a página de uma conta cair, o navegador anota no seu computador um registro curto (`quedas.log`, com as últimas 50
+  quedas): data e hora, número da conta, motivo, memória naquele momento, versão do programa e se a economia de memória
+  estava ligada. Não tem nome de conta, endereço nem dados do jogo, e não é enviado para nós.
 - Para saber se há versão nova, o navegador consulta a página de versões do projeto no GitHub. A versão da loja é
   atualizada pela própria Microsoft.
 - Os sites dos jogos que você abre têm as próprias regras de privacidade.
 - Em cada conta fica ligada a extensão do HuntDesk, baixada da loja do Chrome ao abrir o navegador e a cada 6 horas.
   Ela lê os dados do jogo e só os envia para o app do HuntDesk (no seu PC ou na sua conta HuntDesk) depois que você a
   conecta. O que a sua conta HuntDesk guarda segue a política de privacidade do HuntDesk.
+- Quando o site do app do HuntDesk pede para ligar a leitura a uma conta, o navegador pergunta antes. Se você aceitar,
+  ele busca no HuntDesk a chave dessa ligação e a guarda cifrada no seu computador. Essa chave só envia as leituras.
+- O app do HuntDesk fica sabendo que está aberto dentro do navegador e qual é a versão dele. Os sites dos jogos não
+  recebem essa marca.

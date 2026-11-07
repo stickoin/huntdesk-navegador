@@ -43,7 +43,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--gold); }
 #lado { width: 220px; background: var(--bg-2); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 10px 8px; overflow: hidden; }
 #lado.recolhida { width: 64px; }
 .marca { display: flex; align-items: center; gap: 8px; padding: 0 4px 12px; font-family: Cinzel, Georgia, serif; font-weight: 700; color: var(--gold); font-size: 15px; white-space: nowrap; }
-.marca img { width: 26px; height: 26px; border-radius: 7px; flex: none; }
+.marca img { width: 32px; height: 32px; flex: none; image-rendering: pixelated; } /* 2 × o desenho de 16 pontos: fica nítido */
 #lista { display: flex; flex-direction: column; gap: 2px; overflow: auto; min-height: 0; }
 
 /* pasta: o nome mostra todas as contas dela juntas; a setinha abre e fecha */
@@ -187,3 +187,14 @@ tr.soma td { color: var(--muted); }
 .config input[type="number"] { width: 100px; }
 .opcao { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 6px 4px; }
 .opcao input { margin-top: 3px; }
+
+/* boas-vindas da primeira abertura */
+.boas-vindas { padding: 20px 22px; }
+.boas-vindas .marca { padding: 0 0 12px; font-size: 18px; }
+.boas-vindas p { margin: 0 0 12px; font-size: 14px; }
+.boas-vindas .caixa-app { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; margin-bottom: 16px; }
+.boas-vindas .caixa-app img { width: 36px; height: 36px; border-radius: 8px; flex: none; }
+.boas-vindas .caixa-app b { display: block; color: var(--gold); margin-bottom: 2px; }
+.boas-vindas .caixa-app p { margin: 0; }
+.boas-vindas .botoes-fim { display: flex; justify-content: flex-end; gap: 8px; }
+.boas-vindas .botoes-fim button { padding: 7px 16px; font-size: 14px; }

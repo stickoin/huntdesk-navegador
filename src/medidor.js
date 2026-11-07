@@ -193,4 +193,4 @@ class Medidor {
   }
 }
 
-module.exports = { Medidor, inclinacao, apagarPastaAntiga };
+module.exports = { Medidor, inclinacao, apagarPastaAntiga, horaLocal };

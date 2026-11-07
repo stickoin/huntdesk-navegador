@@ -3,10 +3,14 @@
 // sequência fixa e confere o resultado.
 //   npm run autoteste          → telas: pastas e telas, juntar, separar, desligar, remover e a janelinha
 //   npm run autoteste:guarda   → guarda de memória: aviso, "uma vez por subida" e recarga sozinha
+//   npm run autoteste:boasvindas → boas-vindas: aparece na primeira abertura e nunca mais
+//   npm run autoteste:conexao  → conexão em um passo, com um servidor falso aqui no PC: quem pode pedir, a pergunta e a chave
 
 const fs = require('node:fs');
+const http = require('node:http');
 const path = require('node:path');
-const { app } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
+const config = require('./config');
 
 const espera = (seg) => new Promise((r) => setTimeout(r, seg * 1000));
 
@@ -19,7 +23,7 @@ async function ate(cond, prazoSeg) {
   return cond();
 }
 
-async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar }) {
+async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, marcaApp }) {
   const naTela = () => estado().celulas.map((c) => c.id).join(',');
   const pastas = () => estado().cfg.pastas;
   const telaDe = (id) => pastas().flatMap((p) => p.telas).find((t) => t.contas.includes(id)).id;
@@ -130,9 +134,49 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar })
   const ba = estado().app.getBounds();
   conferir('o app ocupa o espaço das contas', ba.x >= 200 && ba.width > 600 && ba.height > 300, JSON.stringify(ba));
   await foto(janela, 'app');
+  const linha2 = () => janela.webContents.executeJavaScript(`(() => { const l = document.querySelector('#app-linha2');
+    return { texto: l.textContent, cabe: l.scrollWidth <= l.clientWidth }; })()`);
+  const frase = await linha2();
+  conferir('a frase do cartão do app cabe nele', frase.texto === 'suas hunts, lucro e bosses' && frase.cabe, JSON.stringify(frase));
+  // Marca no user agent: um servidorzinho local anota o que cada página manda, como o site do app veria.
+  const vistos = {};
+  const dicas = {}; // o outro cartão de visita do Chrome, com as marcas do navegador
+  const srv = http.createServer((req, res) => { vistos[req.url.slice(1)] = req.headers['user-agent']; dicas[req.url.slice(1)] = req.headers['sec-ch-ua'] || ''; res.end(); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const ver = async (wc, nome) => {
+    await wc.executeJavaScript(`fetch('http://127.0.0.1:${srv.address().port}/${nome}', { mode: 'no-cors' }).catch(() => {})`);
+    return { pagina: await wc.executeJavaScript('navigator.userAgent'), pedido: vistos[nome] || '' };
+  };
+  const temMarca = (u) => u.pagina.includes('HuntDeskNavegador') || u.pedido.includes('HuntDeskNavegador');
+  const uaApp = await ver(estado().app.webContents, 'app');
+  conferir('a marca aparece na vista do app, na página e nos pedidos', uaApp.pagina.endsWith(' ' + marcaApp) && uaApp.pedido.endsWith(' ' + marcaApp), JSON.stringify(uaApp));
+  conferir('a marca fica no cofre do app', session.fromPartition('persist:app-huntdesk').getUserAgent().endsWith(' ' + marcaApp));
+  const uasContas = await Promise.all([...estado().vivas].map(([id, v]) => ver(v.view.webContents, id)));
+  conferir('nenhuma conta do jogo tem a marca', uasContas.length === 2 && uasContas.every((u) => u.pedido && !temMarca(u)), uasContas[0].pedido);
+  conferir('nem o cofre das contas', ['conta1', 'conta2'].every((id) => !session.fromPartition('persist:' + id).getUserAgent().includes('HuntDeskNavegador')));
+  // O nome do programa também não aparece para o site do jogo, e o Electron fica: não finge ser um Chrome comum.
+  const semNome = (u) => !u.includes('HuntDesk') && u.includes('Electron/');
+  conferir('as contas do jogo não mostram o nome do programa', uasContas.every((u) => semNome(u.pagina) && semNome(u.pedido)), uasContas[0].pagina);
+  conferir('nem nas outras marcas do Chrome', ['conta1', 'conta2'].every((id) => !dicas[id].includes('HuntDesk')), dicas.conta1);
+  const c1 = estado().vivas.get('conta1').view.webContents;
+  await c1.executeJavaScript(`void window.open('http://127.0.0.1:${srv.address().port}/janela')`, true);
+  const abriuJanela = await ate(() => vistos.janela, 5);
+  conferir('nem a janela que o jogo abre (a de login, por exemplo)', abriuJanela && semNome(vistos.janela), vistos.janela);
+  for (const w of BrowserWindow.getAllWindows()) if (w.webContents.getURL().endsWith('/janela')) w.destroy();
+  conferir('nem a barra do programa', !janela.webContents.getUserAgent().includes('HuntDeskNavegador'));
   await clicar(`[data-tela="${telaDe('conta1')}"]`);
   conferir('clicar numa tela volta ao jogo e o app continua aberto', await ate(() => !estado().mostrandoApp && naTela() === 'conta1'
     && !filhos().includes(estado().app) && !estado().app.webContents.isDestroyed(), 5), naTela());
+  // Conta aberta depois do app também fica sem a marca.
+  acao('conta:adicionar', { nome: 'Depois do app' });
+  const depois = estado().cfg.contas[estado().cfg.contas.length - 1].id;
+  await ate(() => estado().vivas.get(depois).estado === 'ok', 10);
+  const uaDepois = await ver(estado().vivas.get(depois).view.webContents, depois);
+  conferir('conta aberta depois do app também não tem a marca', uaDepois.pedido && !temMarca(uaDepois), uaDepois.pedido);
+  conferir('nem o nome do programa', semNome(uaDepois.pagina) && semNome(uaDepois.pedido));
+  srv.close();
+  acao('conta:remover', { id: depois });
+  acao('tela:ver', { pasta: 'pasta1', tela: telaDe('conta1') });
   acao('tela:juntar', { tela: telaDe('conta1'), com: telaDe('conta2') });
   // Menuzinho: o ⋯ da tela abre uma janela pequena presa à principal, por cima das contas.
   const sobre = () => estado().sobre;
@@ -160,6 +204,9 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar })
   conferir('fechar esconde a janelinha', !sobre().isVisible());
   v1().view.webContents.forcefullyCrashRenderer();
   conferir('conta que caiu sai da frente', await ate(() => v1().estado === 'caiu', 10) && !v1().view.getVisible(), v1().estado);
+  conferir('a queda guarda o motivo', !!v1().queda, v1().queda);
+  const quedas = fs.readFileSync(path.join(app.getPath('userData'), 'quedas.log'), 'utf8');
+  conferir('registro da queda sem nome nem endereço', /\| conta1 \|/.test(quedas) && !/Conta 1|https?:|pagina-teste/.test(quedas), quedas.trim());
   await foto(janela, 'caiu');
   acao('conta:recarregar', { id: 'conta1' });
   conferir('recarregar traz a conta de volta', await ate(() => v1().estado === 'ok', 20) && v1().view.getVisible(), v1().estado);
@@ -219,6 +266,123 @@ async function guarda({ acao, estado, conferir, janela, abrir, fechar }) {
   conferir('config.json com a guarda', estado().cfg.guarda.acao === 'recarregar');
 }
 
+// Boas-vindas: na pasta de dados nova deste teste, é a primeira abertura.
+async function boasvindas({ estado, conferir, janela, abrirBoasVindas }) {
+  const bv = () => estado().boasVindas;
+  conferir('aparece na primeira abertura', await ate(() => bv() && bv().isVisible(), 10));
+  conferir('presa à janela principal, que espera ela fechar', bv().getParentWindow() === janela && bv().isModal() && !janela.isEnabled());
+  await espera(1);
+  const clicar = (id) => { bv().webContents.executeJavaScript(`document.querySelector('#${id}').click()`).catch(() => {}); };
+  const texto = await bv().webContents.executeJavaScript('document.body.innerText');
+  conferir('fala das contas e do app', ['organiza', 'XP por hora', 'lucro', 'bosses', 'progresso'].every((t) => texto.includes(t)), texto.replace(/\s+/g, ' '));
+  const cabe = await bv().webContents.executeJavaScript('document.documentElement.scrollHeight <= window.innerHeight');
+  conferir('tudo cabe na janela, sem rolar', cabe);
+  await foto(janela, 'boas-vindas', bv().webContents);
+  // Conta como vista assim que aparece: mesmo fechando o programa com ela aberta, não volta.
+  conferir('já fica anotada como vista', !config.carregar().boasVindas);
+  clicar('fechar');
+  conferir('o botão Fechar fecha e devolve a janela principal', await ate(() => !bv(), 5) && janela.isEnabled());
+  conferir('fechar não abre o app', !estado().mostrandoApp);
+  await espera(1);
+  const arquivo = path.join(app.getPath('userData'), 'config.json');
+  conferir('na próxima abertura não aparece de novo', fs.existsSync(arquivo) && config.carregar().boasVindas === false);
+  fs.writeFileSync(arquivo, JSON.stringify({ versao: 3, contas: [{ id: 'conta1', nome: 'Minha conta' }] }));
+  conferir('quem já usava o programa não vê', config.carregar().boasVindas === false);
+  fs.writeFileSync(arquivo, '{ estragado');
+  conferir('quem tinha configuração estragada não vê', config.carregar().boasVindas === false);
+  fs.rmSync(arquivo, { force: true });
+  conferir('sem configuração nenhuma, é a primeira vez', config.carregar().boasVindas === true);
+  // O outro botão (a tela é aberta de novo só neste teste).
+  abrirBoasVindas();
+  await ate(() => bv() && bv().isVisible(), 10);
+  await espera(1);
+  clicar('conhecer');
+  conferir('Conhecer o app fecha e abre o app no lugar das contas', await ate(() => !bv() && estado().mostrandoApp && estado().app, 5));
+}
+
+// Conexão em um passo: nada sai para a internet. O servidor falso faz o papel do app.huntdesk.com.br.
+async function conexao({ acao, estado, conferir, janela, respostasTeste, origemDoApp }) {
+  const pedidos = [];
+  const srv = http.createServer((req, res) => {
+    let corpo = '';
+    req.on('data', (d) => { corpo += d; });
+    req.on('end', () => {
+      if (req.url === '/redir') { res.writeHead(302, { Location: 'https://example.com/' }); return res.end(); }
+      if (req.url === '/pagina') { res.setHeader('Content-Type', 'text/html'); return res.end('<!doctype html><iframe id="q" srcdoc="<p>quadro</p>"></iframe>'); }
+      pedidos.push({ metodo: req.method, url: req.url, chave: req.headers['x-tm-key'] });
+      if (req.url === '/api/pair') {
+        const code = JSON.parse(corpo).code;
+        if (code === 'ERRA-DO00') { res.statusCode = 403; return res.end('{"ok":false}'); }
+        const email = code.startsWith('BBBB') ? 'b@teste' : 'a@teste';
+        return res.end(JSON.stringify({ ok: true, key: 'chave-secreta-' + code, id: 'id-' + code, account: { email } }));
+      }
+      res.end('{"ok":true}');
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const origem = 'http://127.0.0.1:' + srv.address().port;
+  origemDoApp(origem);
+  await espera(5);
+  acao('app:mostrar');
+  const wc = () => estado().app.webContents;
+  const ligar = (codigo) => wc().executeJavaScript(`window.huntdeskNavegador.ligarLeitura(${JSON.stringify(codigo)})`);
+  const pares = () => pedidos.filter((p) => p.url === '/api/pair').length;
+  const apagados = () => pedidos.filter((p) => p.metodo === 'DELETE').map((p) => p.chave);
+  const nuvem = () => estado().cfg.huntdesk && estado().cfg.huntdesk.cloud;
+
+  // Quem pode pedir
+  await ate(() => !wc().isLoading(), 10);
+  conferir('de um endereço que não é o do app, não pede ao servidor', (await ligar('AAAA-1111')).erro === 'origem' && pares() === 0);
+  await wc().loadURL(origem + '/pagina');
+  const naConta = await estado().vivas.get('conta1').view.webContents.executeJavaScript('typeof window.huntdeskNavegador');
+  conferir('as contas do jogo não têm a função', naConta === 'undefined', naConta);
+  conferir('a barra do programa também não', (await janela.webContents.executeJavaScript('typeof window.huntdeskNavegador')) === 'undefined');
+  const quadro = await wc().executeJavaScript("document.querySelector('#q').contentWindow.huntdeskNavegador === undefined");
+  conferir('um quadro dentro da página também não', quadro);
+  const r0 = await ligar('nada disso');
+  conferir('código fora do formato nem vai ao servidor', r0.erro === 'codigo' && pares() === 0, JSON.stringify(r0));
+  const rErro = await ligar('ERRA-DO00');
+  conferir('código recusado pelo servidor volta como erro', rErro.erro === 'codigo' && !nuvem(), JSON.stringify(rErro));
+  acao('tela:ver', { pasta: 'pasta1', tela: 'tela1' });
+  conferir('com o app fora da tela, não pergunta nada', (await ligar('AAAA-1111')).erro === 'fora da tela' && respostasTeste.perguntas.length === 0);
+  acao('app:mostrar');
+
+  // A primeira vez pergunta, e a chave não volta para a página
+  respostasTeste.aceitar = true;
+  const r1 = await ligar('aaaa-1111');
+  conferir('a primeira vez pergunta, com o e-mail da conta', respostasTeste.perguntas.length === 1 && respostasTeste.perguntas[0].email === 'a@teste' && respostasTeste.perguntas[0].antes === null, JSON.stringify(respostasTeste.perguntas));
+  conferir('a página recebe só ok e o e-mail, sem a chave', r1.ok && r1.email === 'a@teste' && Object.keys(r1).join() === 'ok,email' && !JSON.stringify(r1).includes('chave-secreta'), JSON.stringify(r1));
+  conferir('o programa guarda a chave', nuvem() && nuvem().key === 'chave-secreta-AAAA-1111' && nuvem().origin === origem);
+  conferir('nem a barra recebe a chave', !('huntdesk' in (await janela.webContents.executeJavaScript('E'))));
+
+  // No arquivo a chave fica cifrada, e abre de novo
+  await espera(1);
+  const bruto = fs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8');
+  conferir('no config.json a chave fica cifrada', !bruto.includes('chave-secreta') && bruto.includes('chaveCifrada'));
+  const relido = config.carregar();
+  config.abrirChave(relido);
+  conferir('e abre de novo ao ler o arquivo', relido.huntdesk.cloud.key === 'chave-secreta-AAAA-1111' && relido.huntdesk.cloud.email === 'a@teste');
+
+  // Mesma conta: não pergunta e troca a chave
+  const r2 = await ligar('AAAA-2222');
+  conferir('a mesma conta não pergunta de novo', r2.ok && respostasTeste.perguntas.length === 1, JSON.stringify(r2));
+  conferir('e apaga a chave antiga no servidor', await ate(() => apagados().includes('chave-secreta-AAAA-1111'), 3) && nuvem().key === 'chave-secreta-AAAA-2222', JSON.stringify(apagados()));
+
+  // Outra conta: pergunta; com o não, nada muda e a chave nova é apagada
+  respostasTeste.aceitar = false;
+  const r3 = await ligar('BBBB-1111');
+  conferir('outra conta pergunta, dizendo qual é a de agora', respostasTeste.perguntas[1] && respostasTeste.perguntas[1].email === 'b@teste' && respostasTeste.perguntas[1].antes === 'a@teste', JSON.stringify(respostasTeste.perguntas[1]));
+  conferir('Agora não mantém a ligação de antes', r3.erro === 'recusado' && nuvem().key === 'chave-secreta-AAAA-2222', JSON.stringify(r3));
+  conferir('e apaga a chave que foi recusada', await ate(() => apagados().includes('chave-secreta-BBBB-1111'), 3), JSON.stringify(apagados()));
+  const antes = pares();
+  conferir('depois do não, o site não insiste até abrir o programa de novo', (await ligar('BBBB-2222')).erro === 'recusado' && pares() === antes && respostasTeste.perguntas.length === 2);
+
+  // Redirecionamento para fora do site
+  await wc().loadURL(origem + '/redir').catch(() => {});
+  conferir('redirecionamento para outro site é barrado', !wc().getURL().includes('example.com'), wc().getURL());
+  srv.close();
+}
+
 // Aliviar: o Chrome da conta 1 recebe o aviso de "sem memória" sem recarregar a página.
 async function alivio({ acao, estado, medidor, conferir }) {
   await espera(20);
@@ -255,7 +419,7 @@ function rodar(cenario, ctx) {
     resultados.push(!!ok);
     console.log(`autoteste: ${ok ? 'ok    ' : 'FALHOU'} ${nome}${detalhe ? ' — ' + detalhe : ''}`);
   };
-  const fn = { telas, guarda, alivio, quadros }[cenario];
+  const fn = { telas, guarda, alivio, quadros, boasvindas, conexao }[cenario];
   if (!fn) { console.log('autoteste: cenário desconhecido:', cenario); return ctx.sair(); }
   console.log(`autoteste: cenário "${cenario}"`);
   fn({ ...ctx, conferir })

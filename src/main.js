@@ -5,11 +5,13 @@
 // jogo — toda ação sai de um botão ou atalho apertado pelo jogador.
 
 const path = require('node:path');
-const { app, BrowserWindow, WebContentsView, Menu, Notification, dialog, ipcMain, nativeTheme, session, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Notification, dialog, ipcMain, nativeTheme, net, session, shell } = require('electron');
 const { Medidor, apagarPastaAntiga } = require('./medidor');
+const quedas = require('./quedas');
 const { Guarda } = require('./guarda');
 const { Atualizador } = require('./atualizador');
 const { Extensao, ID: ID_EXTENSAO } = require('./extensao');
+const { LigarLeitura } = require('./ligacao');
 const config = require('./config');
 
 const ARGS = process.argv.slice(1);
@@ -21,6 +23,10 @@ const FAIXA = 24; // faixa com o nome e os botões em cima de cada conta (só co
 const VAO = 4; // espaço entre as contas
 const PAINEIS = ['medicoes', 'contas', 'config'];
 
+// O Electron põe o nome do programa no que toda página mostra aos sites; o site do jogo não precisa ver (decisão do
+// dono, 07/11). Tem de ser aqui, no valor geral: a janela que o jogo abre (a de login, por exemplo) não usa o do cofre da
+// conta. O "Electron" fica: o programa não finge ser um Chrome comum. A vista do app acrescenta a marca dela (MARCA_APP).
+app.userAgentFallback = app.userAgentFallback.replace(/ ?HuntDesk\/\S+/, '');
 // O Chrome arredonda a memória do JavaScript que a página informa; com esta opção vem o número exato.
 app.commandLine.appendSwitch('enable-precise-memory-info');
 if (AUTOTESTE) app.setPath('userData', path.join(app.getPath('temp'), 'huntdesk-navegador-autoteste-' + Date.now()));
@@ -48,9 +54,16 @@ let guarda = null;
 let atualizador = null;
 let extensao = null; // extensão do HuntDesk nas contas (fora dos testes)
 let janelaHuntDesk = null;
+let janelaBoasVindas = null;
 let appVista = null; // o site do app do HuntDesk, dentro da janela (ver vistaDoApp)
 let mostrandoApp = false; // true = o app do HuntDesk está na janela, no lugar das contas
 const APP_HUNTDESK = 'https://app.huntdesk.com.br/';
+// Marca no user agent só da vista do app, para o site saber que está dentro do navegador (e trocar os primeiros passos,
+// que mandam instalar a extensão). É só um aviso de cortesia: qualquer um pode imitar, então não vale como prova de nada.
+const MARCA_APP = 'HuntDeskNavegador/' + app.getVersion();
+let origemApp = new URL(APP_HUNTDESK).origin; // de onde o site pode pedir para ligar a leitura (o autoteste troca por um local)
+let ligacao = null; // conexão em um passo (ver ligacao.js)
+const respostasTeste = { perguntas: [], aceitar: false }; // no autoteste, a pergunta ao jogador é respondida daqui
 const avisosAbertos = new Set(); // notificações do Windows na tela (sem referência, o Windows as perde)
 let area = null; // espaço das contas (entre a lateral e a barra de baixo), informado pela própria barra
 let foco = null; // última conta clicada: o F5 recarrega só ela
@@ -111,7 +124,14 @@ function ligarConta(c) {
   wc.on('did-fail-load', (e, codigo, descricao, url, principal) => { if (principal && codigo !== -3) mudarEstado(c.id, 'erro', descricao); });
   wc.on('unresponsive', () => mudarEstado(c.id, 'travada'));
   wc.on('responsive', () => mudarEstado(c.id, 'ok'));
-  wc.on('render-process-gone', (e, d) => mudarEstado(c.id, 'caiu', d.reason));
+  wc.on('render-process-gone', (e, d) => {
+    v.queda = d.reason;
+    mudarEstado(c.id, 'caiu', d.reason);
+    // Ao fechar o programa ou desligar a conta a página também acaba, mas isso não é queda.
+    if (saindo || vivas.get(c.id) !== v) return;
+    const uso = medidor.ultima && medidor.ultima.contas[c.id];
+    quedas.anotar({ conta: c.id, motivo: d.reason, codigo: d.exitCode, ram: uso && uso.ram, economico: ECONOMICO });
+  });
   wc.on('focus', () => { if (foco !== c.id) { foco = c.id; enviarEstado(); } });
   wc.on('before-input-event', (e, input) => atalho(e, input, c.id));
   // No teste da guarda a página gasta memória mesmo escondida (a janela do teste pode abrir atrás de outras).
@@ -376,7 +396,7 @@ async function abrirHuntDesk() {
   if (!(await extensao.naConta(ses, null))) return aviso('A extensão do HuntDesk ainda não foi baixada. Confira a internet e tente de novo daqui a pouco.');
   const j = janelaHuntDesk = new BrowserWindow({
     parent: win, width: 360, height: 600, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true,
-    title: 'HuntDesk · ' + conta(id).nome + ' (vale para todas as contas)', icon: path.join(__dirname, 'ui', 'icone.png'),
+    title: 'HuntDesk · ' + conta(id).nome + ' (vale para todas as contas)', icon: path.join(__dirname, 'ui', 'icone-huntdesk.png'),
     backgroundColor: '#0a0c11',
     webPreferences: { session: ses, preload: path.join(__dirname, 'extensao-janela.js'), sandbox: true, contextIsolation: true },
   });
@@ -387,7 +407,7 @@ async function abrirHuntDesk() {
     if (j.isDestroyed()) return;
     let l;
     try { l = await Extensao.ler(j.webContents); } catch (e) { return; }
-    if (!l || JSON.stringify(l) === JSON.stringify(cfg.huntdesk)) return;
+    if (j.isDestroyed() || !l || JSON.stringify(l) === JSON.stringify(cfg.huntdesk)) return;
     cfg.huntdesk = l;
     config.salvar(cfg);
     for (const outra of vivas.keys()) {
@@ -414,17 +434,22 @@ async function abrirHuntDesk() {
 function vistaDoApp() {
   if (appVista) return appVista;
   const particao = 'persist:app-huntdesk';
-  session.fromPartition(particao).setPermissionRequestHandler(permitir);
-  appVista = new WebContentsView({ webPreferences: { partition: particao, sandbox: true, contextIsolation: true, nodeIntegration: false } });
+  const ses = session.fromPartition(particao);
+  ses.setPermissionRequestHandler(permitir);
+  // No cofre do app, nunca no das contas: assim vale também para o que o site roda em segundo plano, e o jogo não a vê.
+  if (!ses.getUserAgent().includes(MARCA_APP)) ses.setUserAgent(ses.getUserAgent() + ' ' + MARCA_APP);
+  appVista = new WebContentsView({ webPreferences: { partition: particao, sandbox: true, contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, 'app-ponte.js') } });
   appVista.setBackgroundColor('#0a0c11');
   const wc = appVista.webContents;
   const doHuntDesk = (url) => { try { const u = new URL(url); return u.protocol === 'https:' && /(^|\.)huntdesk\.com\.br$/.test(u.hostname); } catch (e) { return false; } };
-  const fora = (url) => { if (/^https?:/i.test(url)) shell.openExternal(url); };
+  const fora = (url) => { if (!TESTE && /^https?:/i.test(url)) shell.openExternal(url); };
   wc.setWindowOpenHandler(({ url }) => {
     if (doHuntDesk(url)) wc.loadURL(url); else fora(url);
     return { action: 'deny' };
   });
   wc.on('will-navigate', (e, url) => { if (!doHuntDesk(url)) { e.preventDefault(); fora(url); } });
+  // O redirecionamento feito pelo servidor não passa pelo will-navigate.
+  wc.on('will-redirect', (e) => { if (e.isMainFrame && !doHuntDesk(e.url)) { e.preventDefault(); fora(e.url); } });
   wc.on('before-input-event', (e, input) => atalho(e, input, 'app'));
   wc.on('focus', fecharSobre);
   // Nos testes não há internet: abre a página de teste no lugar do site.
@@ -432,6 +457,46 @@ function vistaDoApp() {
   else wc.loadURL(APP_HUNTDESK);
   medidor.evento('programa', 'app do HuntDesk aberto');
   return appVista;
+}
+
+// A pergunta da conexão em um passo. O botão escolhido de início é "Agora não": o Enter de quem acabou de digitar a
+// senha no site não pode aceitar sem querer.
+async function perguntarLigacao({ email, antes }) {
+  if (TESTE) { respostasTeste.perguntas.push({ email, antes }); return respostasTeste.aceitar; }
+  const r = await dialog.showMessageBox(win, {
+    type: 'question', title: 'HuntDesk', buttons: ['Ligar', 'Agora não'], defaultId: 1, cancelId: 1, noLink: true,
+    message: antes ? `Trocar a leitura das suas contas de ${antes} para ${email}?` : `Ligar a leitura das suas contas à conta ${email}?`,
+    detail: 'O que for lido do jogo nas contas deste navegador (XP, lucro, bosses e progresso) vai para essa conta do HuntDesk. Para desligar: Menu ▴ → Extensão HuntDesk…',
+  });
+  return r.response === 0;
+}
+
+// Grava a ligação nova e copia para as contas ligadas; as que ligarem depois recebem ao ligar.
+function aplicarLigacao(cloud) {
+  if (janelaHuntDesk) janelaHuntDesk.destroy(); // a conferida dela leria a ligação antiga e desfaria esta
+  cfg.huntdesk = config.limparLigacao({ ...(cfg.huntdesk || {}), cloud });
+  config.salvar(cfg);
+  if (!extensao) return;
+  for (const id of vivas.keys()) {
+    extensao.gravar(session.fromPartition('persist:' + id), cfg.huntdesk).catch((e) => medidor.evento(id, 'ligação com o HuntDesk não copiada: ' + e.message));
+  }
+}
+
+// Boas-vindas de quem abre o programa pela primeira vez: o que ele faz e para que serve o app do HuntDesk. Conta como
+// vista assim que aparece, mesmo se o programa for fechado com ela aberta: não aparece de novo.
+function abrirBoasVindas() {
+  if (janelaBoasVindas) return;
+  const j = janelaBoasVindas = new BrowserWindow({
+    parent: win, modal: true, show: false, width: 500, height: 296, useContentSize: true, resizable: false, minimizable: false,
+    maximizable: false, fullscreenable: false, title: 'Boas-vindas ao HuntDesk', icon: path.join(__dirname, 'ui', 'icone.png'),
+    backgroundColor: '#10141c',
+    webPreferences: { preload: path.join(__dirname, 'ui', 'preload.js'), contextIsolation: true, sandbox: true },
+  });
+  j.once('ready-to-show', () => j.show());
+  j.on('closed', () => { janelaBoasVindas = null; });
+  j.loadFile(path.join(__dirname, 'ui', 'boas-vindas.html'));
+  cfg.boasVindas = false;
+  config.salvar(cfg);
 }
 
 // Diagnóstico (só pela linha de comando, --diagnostico): a cada 5 min anota o que cada página tem — áreas de desenho e
@@ -611,7 +676,7 @@ function enviarEstado() {
     contas: cfg.contas.map((c) => {
       const v = vivas.get(c.id);
       return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, cor: c.cor, ligada: !!v, estado: v ? v.estado : 'desligada',
-        naTela: !!(v && v.presa), desde: v ? v.desde : null };
+        naTela: !!(v && v.presa), desde: v ? v.desde : null, queda: v ? v.queda : null };
     }),
     pastas: cfg.pastas,
     atual: cfg.atual,
@@ -674,6 +739,7 @@ function guardarJanela() {
 }
 
 function criarJanela() {
+  config.abrirChave(cfg);
   Menu.setApplicationMenu(null); // sem o menu padrão: o Ctrl+R dele recarregaria a barra, não a conta
   nativeTheme.themeSource = 'dark'; // Menu ▴ e moldura da janela escuros, como o resto
   const j = cfg.janela || { width: 1600, height: 900 };
@@ -736,11 +802,15 @@ function criarJanela() {
     notificar,
     evento: (id, nota) => medidor.evento(id, nota),
   });
+  ligacao = new LigarLeitura({ origem: () => origemApp, atual: () => (cfg.huntdesk && cfg.huntdesk.cloud) || null, perguntar: perguntarLigacao,
+    aplicar: aplicarLigacao, buscar: (...a) => net.fetch(...a), evento: (nota) => medidor.evento('programa', nota) });
   // Nos testes as contas abrem a página de teste, sem extensão e sem internet.
   if (!TESTE) { extensao = new Extensao({ evento: (nota) => medidor.evento('programa', nota) }); extensao.comecar(); }
   // Abrir as contas ao iniciar é escolha do jogador (Configurações); senão, cada uma espera ele apertar Ligar.
   if (cfg.abrirAoIniciar) cfg.contas.filter((c) => c.ligada).forEach(ligarConta);
   arrumar();
+  // Nos outros autotestes a pasta de dados é sempre nova: sem isto, as boas-vindas abririam por cima de todos.
+  if (cfg.boasVindas && (!TESTE || CENARIO === 'boasvindas')) win.webContents.once('did-finish-load', abrirBoasVindas);
   win.on('resize', () => { fecharSobre(); arrumar(); guardarJanela(); });
   win.on('enter-full-screen', enviarEstado);
   win.on('leave-full-screen', enviarEstado);
@@ -756,8 +826,9 @@ function criarJanela() {
   if (ARGS.includes('--diagnostico')) { const d = () => cfg.contas.forEach((c) => diagnosticar(c.id)); setTimeout(d, 60000); setInterval(d, 5 * 60000); }
   if (EXPERIMENTO_ALIVIO) setInterval(() => ['conta1', 'conta2'].forEach((id) => aliviar(id, 'pelo experimento')), 5 * 60000);
   if (AUTOTESTE) {
-    require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, abrir: abrirSobre, fechar: fecharSobre,
-      estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre, app: appVista, mostrandoApp }), sair: () => app.quit() });
+    require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, abrir: abrirSobre, fechar: fecharSobre, abrirBoasVindas, marcaApp: MARCA_APP,
+      respostasTeste, origemDoApp: (o) => { origemApp = o; },
+      estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre, app: appVista, mostrandoApp, boasVindas: janelaBoasVindas }), sair: () => app.quit() });
   }
 }
 
@@ -782,6 +853,21 @@ ipcMain.on('abrir', (e, d) => {
   else if (d.tipo === 'painel' && PAINEIS.includes(d.painel)) abrirSobre({ tipo: 'painel', painel: d.painel });
 });
 ipcMain.on('fechar', (e) => { if (daBarra(e)) fecharSobre(); });
+// O site do app pede para ligar a leitura. Só vale da página principal da vista do app, no endereço do app e com ela na
+// tela: confere aqui de novo, porque nada que venha da página é confiável por si só.
+ipcMain.handle('app:ligar-leitura', (e, codigo) => {
+  let deOnde = null;
+  try { deOnde = new URL(e.senderFrame.url).origin; } catch (err) { /* sem endereço: recusa abaixo */ }
+  if (!appVista || e.sender !== appVista.webContents || e.senderFrame !== e.sender.mainFrame || deOnde !== origemApp) return { ok: false, erro: 'origem' };
+  if (!mostrandoApp) return { ok: false, erro: 'fora da tela' };
+  return ligacao.ligar(codigo);
+});
+// Os dois botões das boas-vindas; "Conhecer o app" abre o app dentro do navegador.
+ipcMain.on('boas-vindas', (e, escolha) => {
+  if (!janelaBoasVindas || e.sender !== janelaBoasVindas.webContents) return;
+  janelaBoasVindas.close();
+  if (escolha === 'app') acao('app:mostrar');
+});
 // A janelinha diz a altura do que mostra; a janela dela acompanha (sem passar do tamanho da principal).
 ipcMain.on('tamanho', (e, t) => {
   if (!sobre || e.sender !== sobre.webContents || !sobreAberto || !t) return;

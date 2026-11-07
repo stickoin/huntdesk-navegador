@@ -45,7 +45,7 @@ const HISTORICO = [
   [/^ligada$/, () => 'Ligada'],
   [/^desligada$/, () => 'Desligada'],
   [/^recarregada pelo jogador$/, () => 'Você recarregou'],
-  [/^estado: caiu/, () => 'A página caiu'],
+  [/^estado: caiu(?: \((.+)\))?/, (m) => 'A página caiu. ' + motivoQueda(m[1])],
   [/^estado: travada/, () => 'Ficou sem responder'],
   [/^estado: erro/, () => 'Erro ao abrir a página'],
   [/^guarda: passou de (\d+) MB \((\d+) MB\); recarregada sozinha/, (m) => `Passou do limite (${fmt(+m[2])} de ${fmt(+m[1], 0, ' MB')}) e foi recarregada sozinha`],
@@ -200,7 +200,7 @@ function painelConfig() {
       <span>Abrir as contas sozinho, como um navegador reabrindo as abas. Desmarcado, cada conta espera você clicar nela.</span></label>
     <h3>Sobre</h3>
     <p>HuntDesk versão <b>${esc(E.sobre.versao)}</b> <span class="nota">(motor do Chrome ${esc(E.sobre.chrome)})</span></p>
-    <p class="nota">Logins, configurações e medições ficam em ${esc(E.sobre.pasta)}. Desinstalar o programa não apaga essa pasta.</p>
+    <p class="nota">Logins, configurações e um registro curto das quedas de página ficam em ${esc(E.sobre.pasta)}. Desinstalar o programa não apaga essa pasta.</p>
     <div class="linha-botoes"><button id="abrir-dados">Abrir pasta dos dados</button></div>
   </div>`;
 }

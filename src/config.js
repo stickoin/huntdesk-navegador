@@ -4,7 +4,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { app } = require('electron');
+const { app, safeStorage } = require('electron');
 
 const JOGO_PADRAO = 'https://huntera.com.br/game';
 const MAX_POR_TELA = 4; // contas lado a lado numa tela
@@ -38,6 +38,7 @@ function padrao() {
     economico: false, // modo do Chrome para computador fraco: menos memória, imagem um pouco mais simples
     visual: { lateral: true }, // lateral aberta (false = só as siglas)
     huntdesk: null, // ligação com o app do HuntDesk (ver limparLigacao); null = o jogador ainda não abriu a janela dele
+    boasVindas: true, // true = falta mostrar a tela de boas-vindas (só quem abre o programa pela primeira vez)
   };
 }
 
@@ -73,10 +74,37 @@ function limparLigacao(d) {
   return {
     pc: d.pc === true,
     pcOrigin: origem(d.pcOrigin) || 'http://localhost:8766',
-    cloud: c && typeof c === 'object' && origem(c.origin) && typeof c.key === 'string'
-      ? { origin: origem(c.origin), key: c.key.slice(0, 500), id: c.id == null ? null : String(c.id).slice(0, 100), email: typeof c.email === 'string' ? c.email.slice(0, 200) : null }
+    cloud: c && typeof c === 'object' && origem(c.origin) && (typeof c.key === 'string' || typeof c.chaveCifrada === 'string')
+      ? { origin: origem(c.origin), ...(typeof c.key === 'string' ? { key: c.key.slice(0, 500) } : { chaveCifrada: c.chaveCifrada.slice(0, 4000) }),
+        id: c.id == null ? null : String(c.id).slice(0, 100), email: typeof c.email === 'string' ? c.email.slice(0, 200) : null }
       : null,
   };
+}
+
+// No config.json a chave da conta na nuvem fica cifrada pelo Windows (só este usuário neste PC abre). A cifra só existe
+// depois de o programa ficar pronto, e o arquivo é lido antes: por isso abrirChave é um passo à parte. Sem conseguir
+// abrir (pasta copiada de outro PC), a ligação cai e o jogador conecta de novo.
+function abrirChave(cfg) {
+  const c = cfg.huntdesk && cfg.huntdesk.cloud;
+  if (!c || !c.chaveCifrada) return;
+  try {
+    const key = safeStorage.decryptString(Buffer.from(c.chaveCifrada, 'base64'));
+    cfg.huntdesk = limparLigacao({ ...cfg.huntdesk, cloud: { origin: c.origin, key, id: c.id, email: c.email } });
+  } catch (e) {
+    cfg.huntdesk = { ...cfg.huntdesk, cloud: null };
+  }
+}
+
+function paraDisco(cfg) {
+  const c = cfg.huntdesk && cfg.huntdesk.cloud;
+  if (!c || !c.key) return cfg;
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return cfg;
+    const { key, ...resto } = c;
+    return { ...cfg, huntdesk: { ...cfg.huntdesk, cloud: { ...resto, chaveCifrada: safeStorage.encryptString(key).toString('base64') } } };
+  } catch (e) {
+    return cfg; // sem a cifra do Windows, grava como a extensão guarda: melhor do que perder a ligação
+  }
 }
 
 function enderecoValido(url) {
@@ -160,6 +188,8 @@ function limpar(bruto) {
   cfg.guarda = limparGuarda(bruto.guarda);
   // Até a versão 1 o limite de fábrica era 3.072 MB; quem nunca mexeu nele passa para o de agora.
   if (!(bruto.versao >= 2) && cfg.guarda.limiteMb === 3072) cfg.guarda.limiteMb = LIMITE_NORMAL;
+  // Arquivo sem esse campo é de quem já usava o programa antes das boas-vindas: não precisa delas.
+  cfg.boasVindas = bruto.boasVindas === true;
   cfg.abrirAoIniciar = bruto.abrirAoIniciar !== false;
   cfg.economico = bruto.economico === true;
   const v = bruto.visual || {};
@@ -179,6 +209,7 @@ function carregar() {
     if (e.code !== 'ENOENT') {
       // Arquivo estragado: guarda uma cópia para não perder nada e começa do padrão.
       try { fs.renameSync(arquivo(), arquivo() + '.estragado-' + Date.now()); } catch (e2) { /* sem cópia */ }
+      return { ...padrao(), boasVindas: false }; // quem tinha arquivo, mesmo estragado, já usava o programa
     }
     return padrao();
   }
@@ -189,7 +220,7 @@ function gravarAgora(cfg) {
   clearTimeout(timer);
   const f = arquivo();
   fs.mkdirSync(path.dirname(f), { recursive: true });
-  fs.writeFileSync(f + '.tmp', JSON.stringify(cfg, null, 2));
+  fs.writeFileSync(f + '.tmp', JSON.stringify(paraDisco(cfg), null, 2));
   fs.renameSync(f + '.tmp', f); // troca de uma vez: um desligamento no meio nunca deixa o arquivo pela metade
 }
 function salvar(cfg) {
@@ -197,4 +228,4 @@ function salvar(cfg) {
   timer = setTimeout(() => gravarAgora(cfg), 300);
 }
 
-module.exports = { carregar, salvar, gravarAgora, enderecoValido, nomeValido, limparGuarda, limparLigacao, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };
+module.exports = { carregar, salvar, gravarAgora, enderecoValido, nomeValido, limparGuarda, limparLigacao, abrirChave, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };

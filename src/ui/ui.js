@@ -35,7 +35,6 @@ function desenharLado() {
   $('#seta').textContent = E.visual.lateral ? '«' : '»';
   const ab = E.aberto || {};
   $('#app-card').classList.toggle('atual', E.app);
-  $('#app-linha2').textContent = E.app ? 'na tela' : 'seus dados da caçada';
   // Com o app do HuntDesk na janela, nenhuma tela fica marcada.
   const atual = E.app ? {} : E.atual;
   $('#lista').innerHTML = E.pastas.map((p) => {
@@ -119,7 +118,7 @@ function desenharCelulas() {
       </div>
       ${caiu ? `<div class="caido"><div>
         <h3>A página da ${esc(c.nome)} caiu</h3>
-        <p>O Chrome fechou a página (falta de memória ou erro).<br>O HuntDesk não tenta sozinho: você decide quando voltar.</p>
+        <p>${esc(motivoQueda(c.queda))}<br>O HuntDesk não tenta sozinho: você decide quando voltar.</p>
         <button class="forte" data-conta="${esc(c.id)}" data-faz="recarregar">Recarregar agora</button>
       </div></div>` : ''}
     </div>`;
