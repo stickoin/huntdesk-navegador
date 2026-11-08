@@ -7,8 +7,11 @@ Um navegador feito para quem joga jogos idle e de navegador com várias contas a
 - **Pastas e telas na lateral:** junte as contas em pastas (por exemplo, uma por jogo). Cada tela mostra de 1 a 4
   contas lado a lado; o clique troca de tela (Ctrl+1, Ctrl+2…, Ctrl+Tab) e as outras contas continuam rodando.
   Arraste as telas e as pastas para mudar a ordem e escolha uma cor para cada conta.
-- **Extensão do HuntDesk** já ligada em cada conta, baixada da loja do Chrome. Conectar uma vez vale para todas as
-  contas. O **app do HuntDesk** abre dentro do navegador.
+- **Outros jogos de navegador:** em **+ Adicionar conta**, cole o endereço do jogo (com https). Cada site ganha uma
+  pasta própria. Downloads ficam bloqueados nas contas.
+- **Extensão do HuntDesk** já ligada nas contas do jogo que o HuntDesk acompanha, baixada da loja do Chrome. Conectar
+  uma vez vale para todas essas contas. Nas contas de outros jogos ela fica desligada. O **app do HuntDesk** abre dentro
+  do navegador.
 - **Controle de memória:** mostra quanto cada conta gasta de memória e de processador. Se uma conta passar do limite
   que você escolheu, o programa **avisa** ou **recarrega só aquela página**, conforme a sua escolha.
 - **Freio:** conta escondida ou fora da tela gasta menos.
@@ -41,7 +44,7 @@ se você apertar **Reiniciar agora**.
   - baixar a extensão do HuntDesk da loja do Chrome, ao abrir e a cada 6 horas;
   - abrir o app do HuntDesk e buscar a chave de ligação com a sua conta, se o site pedir e você aceitar. A chave fica
     cifrada no seu computador.
-- A extensão do HuntDesk lê os dados do jogo e só os manda para o app do HuntDesk (no seu PC ou na sua conta
+- A extensão do HuntDesk lê os dados do jogo que o HuntDesk acompanha e só os manda para o app do HuntDesk (no seu PC ou na sua conta
   HuntDesk) depois que você a conecta, em **Menu ▴ → Extensão HuntDesk…**.
 
 ## Para quem quer mexer no código

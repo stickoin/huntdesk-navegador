@@ -6,6 +6,8 @@
 let aberto = null; // { tipo: 'tela', tela } | { tipo: 'pasta', pasta, nova } | { tipo: 'painel', painel } | null
 let assinaturaPainel = '';
 let graficosAbertos = false; // "Gráficos e histórico" aberto continua aberto quando os números atualizam
+let erroUrl = ''; // o que está errado no endereço colado em "Adicionar conta"
+let urlDigitada = ''; // o endereço colado, para não sumir quando a janelinha mostra o erro
 let removendo = null; // conta com o "Remover" já clicado uma vez: o segundo clique remove (sem caixa de confirmação,
 // que tiraria o foco e fecharia o menuzinho)
 let alturaAvisada = 0;
@@ -78,7 +80,7 @@ function linhaConta(c) {
   const e = estadoDe(c, a);
   return `<div class="linha-conta" data-conta="${esc(c.id)}">
     ${ini(c, e.bola)}<span class="t"><b>${esc(c.nome)}</b>
-      <span class="nota"><span class="${e.classe}">${esc(e.texto)}</span>${c.ligada ? ' · ' + ram(uso(c.id)) + (c.desde ? ' · ligada há ' + duracao(Date.now() - c.desde) : '') : ''}</span></span>
+      <span class="nota"><span class="site">${esc(c.site)}</span> · <span class="${e.classe}">${esc(e.texto)}</span>${c.ligada ? ' · ' + ram(uso(c.id)) + (c.desde ? ' · ligada há ' + duracao(Date.now() - c.desde) : '') : ''}</span></span>
     ${a ? `<div class="aviso-caixa ${a.recarregada ? 'atencao' : 'ruim'}">${esc(textoAlerta(a))} <button data-faz="dispensar">Dispensar</button></div>` : ''}
     <span class="botoes">${c.ligada ? `
       <button data-faz="recarregar" title="Recarrega só esta conta (F5 dentro dela faz o mesmo)">Recarregar</button>
@@ -126,10 +128,33 @@ function desenharPasta(p) {
     <label class="linha-form">Nome <input id="nome-pasta" value="${esc(p.nome)}" maxlength="40" aria-label="Nome da pasta"></label>
     <div class="opcoes">
       <button data-faz="ver-todas"${n ? '' : ' disabled'}>Ver as contas da pasta juntas</button>
-      <button data-faz="conta-nova">+ Conta nova nesta pasta</button>
+      <button data-faz="conta-nova">+ Adicionar conta nesta pasta</button>
       ${!p.telas.length && E.pastas.length > 1 ? '<button data-faz="apagar-pasta" class="perigo">Apagar a pasta (está vazia)</button>' : ''}
     </div>
     <p class="nota">Para levar contas para outra pasta, use "Mover para a pasta" no ⋯ de cada tela.</p>`;
+}
+
+// Adicionar conta: mais uma do jogo da pasta, num clique, ou outro jogo pelo endereço (só https).
+const urlDaPasta = (p) => (p.telas.flatMap((t) => t.contas).map(contaDe).find(Boolean) || {}).url;
+function desenharContaNova(p) {
+  const url = urlDaPasta(p);
+  $('#janela-menu').innerHTML = `<div class="cab-janela"><span class="t"><b>Adicionar conta</b><span class="nota">pasta ${esc(p.nome)}</span></span>
+      <button class="x" data-fechar title="Fechar (Esc)">✕</button></div>
+    ${url ? `<div class="opcoes"><button data-faz="mesmo-jogo">Mais uma conta deste jogo <span class="nota">${esc(siteDe(url))}</span></button></div>
+      <h4>Outro jogo</h4>` : '<h4>Endereço do jogo</h4>'}
+    <div class="linha-form"><input id="url-jogo" value="${esc(urlDigitada)}" placeholder="https://site-do-jogo.com" aria-label="Endereço do jogo"></div>
+    <div class="linha-botoes"><button class="forte" data-faz="adicionar-url">Adicionar</button></div>
+    ${erroUrl ? `<p class="ruim">${esc(erroUrl)}</p>` : ''}
+    <p class="nota">Cole o endereço da página do jogo. A conta nova abre com o login separado e cai na pasta daquele site.
+      Quem entra no jogo é sempre você. Só as contas do Huntera mandam dados para o app do HuntDesk.</p>`;
+}
+
+// Confere o endereço colado; devolve o motivo do erro, ou '' se estiver certo.
+function problemaDoEndereco(url) {
+  let u;
+  try { u = new URL(url); } catch (e) { return 'Esse endereço não parece certo. Copie da barra do navegador, começando com https://'; }
+  if (u.protocol !== 'https:') return 'Só endereços com https://: sem ele, a senha do jogo viaja sem proteção.';
+  return '';
 }
 
 // ---------- painéis ----------
@@ -173,7 +198,8 @@ function painelContas() {
       <button id="nova-adicionar" class="forte">+ Adicionar conta</button>
     </div>
     <p class="nota">Cada conta tem o login separado e guardado no seu PC; você entra nela pelo próprio site do jogo.
-      Confira o limite de contas do jogo antes de abrir muitas.</p>`;
+      Qualquer jogo de navegador serve: cole o endereço dele, começando com https://. Confira o limite de contas do jogo
+      antes de abrir muitas.</p>`;
 }
 
 function painelConfig() {
@@ -229,16 +255,18 @@ function desenharPainel() {
 
 function desenhar() {
   const tela = aberto && aberto.tipo === 'tela' && E ? acharTela(aberto.tela) : null;
-  const pasta = aberto && aberto.tipo === 'pasta' && E ? E.pastas.find((p) => p.id === aberto.pasta) : null;
+  const daPasta = aberto && (aberto.tipo === 'pasta' || aberto.tipo === 'conta-nova');
+  const pasta = daPasta && E ? E.pastas.find((p) => p.id === aberto.pasta) : null;
   // Tela ou pasta que deixou de existir (juntada, removida, apagada): a janelinha fecha.
-  if (aberto && E && ((aberto.tipo === 'tela' && !tela) || (aberto.tipo === 'pasta' && !pasta))) return fechar();
+  if (aberto && E && ((aberto.tipo === 'tela' && !tela) || (daPasta && !pasta))) return fechar();
   const menu = $('#janela-menu');
   menu.hidden = !(tela || pasta);
   $('#janela-painel').hidden = !(aberto && aberto.tipo === 'painel' && E);
-  // Ninguém digitando no nome da pasta: aí pode redesenhar.
+  // Ninguém digitando no nome da pasta ou no endereço: aí pode redesenhar.
   const digitando = menu.contains(document.activeElement) && document.activeElement.tagName === 'INPUT';
   if (tela) desenharTela(tela.p, tela.t);
-  else if (pasta && !digitando) desenharPasta(pasta);
+  else if (pasta && aberto.tipo === 'conta-nova' && !digitando) desenharContaNova(pasta);
+  else if (pasta && aberto.tipo === 'pasta' && !digitando) desenharPasta(pasta);
   else if (aberto && aberto.tipo === 'painel' && E) desenharPainel();
   avisarTamanho();
 }
@@ -246,11 +274,14 @@ function desenhar() {
 window.p0.aoAbrir((dados) => {
   aberto = dados;
   removendo = null;
+  erroUrl = '';
+  urlDigitada = '';
   assinaturaPainel = '';
   alturaAvisada = 0;
   desenhar();
   // Pasta que acabou de ser criada: o nome já fica escolhido para trocar.
   if (dados && dados.tipo === 'pasta' && dados.nova && $('#nome-pasta')) { $('#nome-pasta').focus(); $('#nome-pasta').select(); }
+  if (dados && dados.tipo === 'conta-nova' && $('#url-jogo')) $('#url-jogo').focus();
 });
 window.addEventListener('resize', avisarTamanho);
 // Abrir ou fechar "Gráficos e histórico" muda a altura (o evento não sobe pela página: escuta na descida).
@@ -297,7 +328,24 @@ document.addEventListener('click', (ev) => {
     }
     const pasta = aberto.pasta;
     if (f === 'ver-todas') { acao('tela:ver', { pasta, tela: 'todas' }); return fechar(); }
-    if (f === 'conta-nova') { acao('conta:adicionar', { pasta, url: E.padrao }); return fechar(); }
+    if (f === 'conta-nova') return window.p0.abrir({ tipo: 'conta-nova', pasta, x: aberto.x, y: aberto.y });
+    if (f === 'mesmo-jogo') {
+      const p = E.pastas.find((q) => q.id === pasta);
+      acao('conta:adicionar', { pasta, url: (p && urlDaPasta(p)) || E.padrao });
+      return fechar();
+    }
+    if (f === 'adicionar-url') {
+      urlDigitada = $('#url-jogo').value.trim();
+      erroUrl = problemaDoEndereco(urlDigitada);
+      if (erroUrl) {
+        // Desenha já, mesmo com o campo ainda escolhido (o desenhar() de sempre espera o jogador parar de digitar).
+        desenharContaNova(E.pastas.find((q) => q.id === pasta));
+        avisarTamanho();
+        return $('#url-jogo').focus();
+      }
+      acao('conta:adicionar', { pasta, url: urlDigitada });
+      return fechar();
+    }
     if (f === 'apagar-pasta') { acao('pasta:apagar', { id: pasta }); return fechar(); }
     return;
   }
@@ -315,6 +363,8 @@ document.addEventListener('click', (ev) => {
   if (b.id === 'abrir-dados') return window.p0.abrirDados();
   if (b.id === 'nova-adicionar') {
     const url = $('#nova-url').value.trim();
+    const problema = url && problemaDoEndereco(url);
+    if (problema) return alert(problema);
     acao('conta:adicionar', { nome: $('#nova-nome').value, url: url || E.padrao });
     $('#nova-nome').value = '';
     $('#nova-url').value = '';
@@ -340,5 +390,6 @@ document.addEventListener('change', (ev) => {
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && aberto) return fechar();
+  if (ev.key === 'Enter' && ev.target.id === 'url-jogo') return document.querySelector('[data-faz="adicionar-url"]').click();
   if (ev.key === 'Enter' && ev.target.tagName === 'INPUT') ev.target.blur();
 });

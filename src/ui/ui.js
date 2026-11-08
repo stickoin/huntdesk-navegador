@@ -19,14 +19,15 @@ const problemas = () => E.contas.filter((c) => c.ligada && (alerta(c.id) || ['ca
 
 // ---------- lateral: pastas e telas ----------
 
-// O que a linha da tela diz embaixo dos nomes.
+// O que a linha da tela diz embaixo dos nomes: o site (para o jogador saber onde digita a senha) e como ela está.
 function textoTela(cs) {
+  const sites = [...new Set(cs.map((c) => c.site).filter(Boolean))];
+  const site = sites.length > 1 ? `${sites.length} sites` : esc(sites[0] || '');
   const ligadas = cs.filter((c) => c.ligada);
-  if (ligadas.some((c) => c.estado === 'caiu')) return '<span class="ruim">uma conta caiu</span>';
-  if (ligadas.some((c) => alerta(c.id))) return '<span class="ruim">passou do limite</span>';
-  if (!ligadas.length) return 'desligada · clique para ligar';
-  const mb = ligadas.reduce((s, c) => s + (uso(c.id).ram || 0), 0);
-  return `${cs.length === 1 ? '1 conta' : cs.length + ' contas'} · ${gb(mb)}`;
+  const como = ligadas.some((c) => c.estado === 'caiu') ? '<span class="ruim">uma conta caiu</span>'
+    : ligadas.some((c) => alerta(c.id)) ? '<span class="ruim">passou do limite</span>'
+      : !ligadas.length ? 'desligada' : gb(ligadas.reduce((s, c) => s + (uso(c.id).ram || 0), 0));
+  return site ? `${site} · ${como}` : como;
 }
 
 function desenharLado() {
@@ -51,7 +52,7 @@ Botão direito ou ⋯: as contas desta tela, a cor delas, juntar e separar.">
         <span class="dir some"><button class="tres" data-menu-tela="${esc(t.id)}" title="Opções desta tela">⋯</button></span>
         <span class="linha2 some">${textoTela(cs)}</span>
       </div>`;
-    }).join('') + `<button class="nova some" data-conta-nova="${esc(p.id)}" title="Uma conta nova, numa tela só dela">+ Conta nova</button>` : '';
+    }).join('') + `<button class="nova some" data-conta-nova="${esc(p.id)}" title="Mais uma conta deste jogo, ou de outro jogo pelo endereço">+ Adicionar conta</button>` : '';
     return `<div class="pasta${todas ? ' atual' : ''}${ab.pasta === p.id ? ' menu' : ''}" role="button" tabindex="0" draggable="true" data-pasta="${esc(p.id)}"
         title="Clique: as ${n} contas desta pasta juntas na tela. Arraste para mudar de lugar. Botão direito ou ⋯: nome e opções.">
         <span class="seta-pasta" data-abrir-pasta="${esc(p.id)}" title="Abrir ou fechar a pasta">${p.aberta ? '▾' : '▸'}</span>
@@ -112,7 +113,7 @@ function desenharCelulas() {
     const classes = ['celula', E.foco === c.id ? 'foco' : '', a ? (a.recarregada ? 'recarregada' : 'com-alerta') : '', caiu ? 'caiu' : ''].join(' ');
     return `<div class="${classes}" data-celula="${esc(c.id)}">
       <div class="faixa">
-        ${ini(c, 'sem', 'mini')}<b>${esc(c.nome)}</b>${meio}
+        ${ini(c, 'sem', 'mini')}<b>${esc(c.nome)}</b><span class="site">${esc(c.site)}</span>${meio}
         <span class="espaco"></span>
         <button data-conta="${esc(c.id)}" data-faz="recarregar" title="Recarrega só esta conta (F5 dentro dela faz o mesmo)">Recarregar</button>
       </div>
@@ -149,7 +150,7 @@ document.addEventListener('click', (ev) => {
   if (b.dataset.menuTela) return abrirMenu(b.closest('[data-tela]'), { tipo: 'tela', tela: b.dataset.menuTela });
   if (b.dataset.menuPasta) return abrirMenu(b.closest('[data-pasta]'), { tipo: 'pasta', pasta: b.dataset.menuPasta });
   if (b.dataset.abrirPasta) return acao('pasta:abrir', { id: b.dataset.abrirPasta });
-  if (b.dataset.contaNova) return acao('conta:adicionar', { pasta: b.dataset.contaNova, url: E.padrao });
+  if (b.dataset.contaNova) return abrirMenu(b, { tipo: 'conta-nova', pasta: b.dataset.contaNova });
   if (b.dataset.tela) return acao('tela:ver', { pasta: b.dataset.pastaDaTela, tela: b.dataset.tela });
   if (b.dataset.pasta) return acao('tela:ver', { pasta: b.dataset.pasta, tela: 'todas' });
   if (b.dataset.abrir) return abrirPainel(b.dataset.abrir);

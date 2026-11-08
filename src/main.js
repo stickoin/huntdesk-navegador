@@ -47,7 +47,8 @@ let cfg = config.carregar(); // contas, pastas e telas (config.json)
 // programa, por isso trocar nas Configurações reinicia.
 const ECONOMICO = cfg.economico || ARGS.includes('--economico');
 if (ECONOMICO) app.commandLine.appendSwitch('enable-low-end-device-mode');
-const vivas = new Map(); // id da conta → { view, estado, presa }; presa = está na janela agora
+const vivas = new Map(); // id da conta → { view, estado, presa, site }; presa = está na janela agora
+const sessoesVigiadas = new Set(); // cofres de conta que já bloqueiam downloads (uma vez por abertura do programa)
 let win = null;
 let medidor = null;
 let guarda = null;
@@ -102,7 +103,13 @@ function permitir(wc, permissao, responder) {
 function ligarConta(c) {
   if (vivas.has(c.id)) return;
   const particao = 'persist:' + c.id; // "persist:" = cookies e login guardados entre aberturas, um cofre por conta
-  session.fromPartition(particao).setPermissionRequestHandler(permitir);
+  const ses = session.fromPartition(particao);
+  ses.setPermissionRequestHandler(permitir);
+  // Os jogos não precisam baixar arquivos: nas contas não sai download nenhum, nem de uma página falsa.
+  if (!sessoesVigiadas.has(particao)) {
+    sessoesVigiadas.add(particao);
+    ses.on('will-download', (e, item) => { e.preventDefault(); medidor.evento(c.id, 'download bloqueado: ' + (config.siteDe(item.getURL()) || 'página')); });
+  }
   const view = new WebContentsView({
     webPreferences: {
       partition: particao, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: c.freio,
@@ -110,7 +117,8 @@ function ligarConta(c) {
     },
   });
   view.setBackgroundColor('#0a0c11');
-  const v = { view, estado: 'carregando', presa: false, desde: Date.now() };
+  // site: onde a conta está agora (aparece na lateral, na faixa e no menuzinho, para o jogador saber onde digita a senha)
+  const v = { view, estado: 'carregando', presa: false, desde: Date.now(), site: config.siteDe(c.url) };
   vivas.set(c.id, v);
   const wc = view.webContents;
   wc.setAudioMuted(!!c.mudo);
@@ -118,6 +126,16 @@ function ligarConta(c) {
     // Janela que o jogo pede (login, termos) abre com a mesma conta; o Chrome só deixa abrir com um clique do jogador.
     if (/^https?:/i.test(url)) return { action: 'allow', overrideBrowserWindowOptions: { autoHideMenuBar: true } };
     return { action: 'deny' };
+  });
+  // Essa janela não tem barra de endereço: o site vai no título dela.
+  wc.on('did-create-window', (j) => {
+    const titulo = () => { if (!j.isDestroyed()) j.setTitle(`${config.siteDe(j.webContents.getURL()) || 'janela do jogo'} · ${j.webContents.getTitle()}`); };
+    j.on('page-title-updated', (e) => { e.preventDefault(); titulo(); });
+    j.webContents.on('did-navigate', titulo);
+  });
+  wc.on('did-navigate', (e, url) => {
+    const site = config.siteDe(url);
+    if (site && site !== v.site) { v.site = site; enviarEstado(); }
   });
   wc.on('did-start-loading', () => mudarEstado(c.id, 'carregando'));
   wc.on('did-finish-load', () => { mudarEstado(c.id, 'ok'); medidor.prepararPagina(wc); });
@@ -136,8 +154,10 @@ function ligarConta(c) {
   wc.on('before-input-event', (e, input) => atalho(e, input, c.id));
   // No teste da guarda a página gasta memória mesmo escondida (a janela do teste pode abrir atrás de outras).
   if (TESTE) wc.loadFile(PAGINA_TESTE, { query: { conta: c.nome, vazar: CENARIO === 'guarda' ? 'sempre' : 'desenho' } });
-  // A extensão do HuntDesk liga antes do jogo abrir: o leitor dela precisa estar na página desde o começo.
-  else extensao.naConta(session.fromPartition(particao), cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(c.url); });
+  // A extensão do HuntDesk liga antes do jogo abrir: o leitor dela precisa estar na página desde o começo. Ela só lê o
+  // Huntera, então as contas de outros jogos abrem sem ela.
+  else if (config.ehHuntera(c.url)) extensao.naConta(ses, cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(c.url); });
+  else wc.loadURL(c.url);
   medidor.evento(c.id, 'ligada');
 }
 
@@ -251,7 +271,7 @@ function arrumar() {
 // As páginas do jogo ficam por cima de tudo o que a barra desenha; por isso a janelinha da conta e os painéis abrem
 // numa janela pequena própria, presa à principal (sempre por cima dela). Nada escurece atrás: o jogo continua à vista.
 // Fecha com Esc, ✕ ou um clique em qualquer lugar da janela principal.
-const qualSobre = (d) => (d ? d.tela || d.pasta || d.painel : null);
+const qualSobre = (d) => (!d ? null : d.tipo === 'conta-nova' ? 'nova:' + d.pasta : d.tela || d.pasta || d.painel);
 
 function abrirSobre(dados) {
   sobreAberto = dados;
@@ -337,12 +357,24 @@ function proximaTela(passo) {
 
 // ---------- ações (sempre de um botão ou atalho do jogador) ----------
 
-// A conta nova ganha uma tela só dela na pasta escolhida (ou na que está na janela) e já aparece.
+// A conta nova ganha uma tela só dela e já aparece. O jogo é o do endereço (só https; sem endereço, o Huntera). Fica na
+// pasta escolhida (ou na que está na janela), a não ser que essa pasta seja de outro jogo: aí vai para a pasta daquele
+// site, que nasce com o nome dele se ainda não existir.
 function novaConta({ nome, url, pasta }) {
+  if (url && !config.enderecoSeguro(url)) return;
   const id = 'conta' + cfg.proximaConta++;
-  const c = { id, nome: config.nomeValido(nome, 'Conta ' + id.slice(5)), url: config.enderecoValido(url) ? url : config.JOGO_PADRAO, freio: true, ligada: true };
+  const c = { id, nome: config.nomeValido(nome, 'Conta ' + id.slice(5)), url: url || config.JOGO_PADRAO, freio: true, ligada: true };
+  const site = config.siteDe(c.url);
+  const sitesDa = (q) => new Set(q.telas.flatMap((t) => t.contas).map((x) => config.siteDe(conta(x).url)));
+  let p = pastaDe(pasta) || pastaDe(cfg.atual.pasta) || cfg.pastas[0];
+  if (sitesDa(p).size && !sitesDa(p).has(site)) {
+    p = cfg.pastas.find((q) => { const s = sitesDa(q); return s.size === 1 && s.has(site); });
+    if (!p) {
+      p = { id: 'pasta' + cfg.proximaPasta++, nome: config.nomeValido(site, 'Pasta nova'), aberta: true, telas: [] };
+      cfg.pastas.push(p);
+    }
+  }
   cfg.contas.push(c);
-  const p = pastaDe(pasta) || pastaDe(cfg.atual.pasta) || cfg.pastas[0];
   const t = { id: 'tela' + cfg.proximaTela++, contas: [id] };
   p.telas.push(t);
   p.aberta = true;
@@ -389,9 +421,10 @@ async function aliviar(id, quem) {
 // servidor do PC e a conta na nuvem. O que o jogador muda ali vale para todas as contas: o navegador copia para elas.
 async function abrirHuntDesk() {
   if (janelaHuntDesk) { janelaHuntDesk.focus(); return; }
-  const id = foco && vivas.has(foco) ? foco : naTela()[0] || [...vivas.keys()][0];
+  // Uma conta do Huntera ligada: a da tela em que o jogador está, se der.
+  const id = [foco, ...naTela(), ...vivas.keys()].find((x) => x && vivas.has(x) && config.ehHuntera(conta(x).url));
   const aviso = (detail) => dialog.showMessageBox(win, { type: 'info', title: 'HuntDesk', message: 'App do HuntDesk', detail });
-  if (!id) return aviso('Ligue uma conta do jogo primeiro: a janela do HuntDesk mostra o que a conta está lendo.');
+  if (!id) return aviso('Ligue uma conta do Huntera primeiro: a janela do HuntDesk mostra o que a conta está lendo.');
   const ses = session.fromPartition('persist:' + id);
   if (!(await extensao.naConta(ses, null))) return aviso('A extensão do HuntDesk ainda não foi baixada. Confira a internet e tente de novo daqui a pouco.');
   const j = janelaHuntDesk = new BrowserWindow({
@@ -411,7 +444,7 @@ async function abrirHuntDesk() {
     cfg.huntdesk = l;
     config.salvar(cfg);
     for (const outra of vivas.keys()) {
-      if (outra !== id) extensao.gravar(session.fromPartition('persist:' + outra), l).catch((e) => medidor.evento(outra, 'ligação com o HuntDesk não copiada: ' + e.message));
+      if (outra !== id && config.ehHuntera(conta(outra).url)) extensao.gravar(session.fromPartition('persist:' + outra), l).catch((e) => medidor.evento(outra, 'ligação com o HuntDesk não copiada: ' + e.message));
     }
     medidor.evento('programa', `ligação com o HuntDesk mudou (PC ${l.pc ? 'sim' : 'não'}, nuvem ${l.cloud ? 'sim' : 'não'}); copiada para as contas`);
   };
@@ -478,7 +511,7 @@ function aplicarLigacao(cloud) {
   config.salvar(cfg);
   if (!extensao) return;
   for (const id of vivas.keys()) {
-    extensao.gravar(session.fromPartition('persist:' + id), cfg.huntdesk).catch((e) => medidor.evento(id, 'ligação com o HuntDesk não copiada: ' + e.message));
+    if (config.ehHuntera(conta(id).url)) extensao.gravar(session.fromPartition('persist:' + id), cfg.huntdesk).catch((e) => medidor.evento(id, 'ligação com o HuntDesk não copiada: ' + e.message));
   }
 }
 
@@ -633,10 +666,19 @@ const ACOES = {
   'conta:renomear': ({ id, nome }) => { const c = conta(id); if (c) c.nome = config.nomeValido(nome, c.nome); },
   'conta:endereco': ({ id, url }) => {
     const c = conta(id);
-    if (!c || !config.enderecoValido(url) || c.url === url) return;
+    if (!c || !config.enderecoSeguro(url) || c.url === url) return;
+    const eraHuntera = config.ehHuntera(c.url);
     c.url = url;
     const v = vivas.get(id);
-    if (v && !TESTE) v.view.webContents.loadURL(url);
+    if (!v) return;
+    v.site = config.siteDe(url);
+    if (TESTE) return;
+    // A extensão do HuntDesk entra ou sai junto com o Huntera.
+    const wc = v.view.webContents;
+    const ses = session.fromPartition('persist:' + id);
+    if (config.ehHuntera(url) && !eraHuntera) return extensao.naConta(ses, cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(url); });
+    if (!config.ehHuntera(url) && ses.extensions.getExtension(ID_EXTENSAO)) ses.extensions.removeExtension(ID_EXTENSAO);
+    wc.loadURL(url);
   },
   'conta:remover': ({ id }) => { if (conta(id)) removerConta(id); },
   'guarda:config': (dados) => {
@@ -676,7 +718,7 @@ function enviarEstado() {
     contas: cfg.contas.map((c) => {
       const v = vivas.get(c.id);
       return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, cor: c.cor, ligada: !!v, estado: v ? v.estado : 'desligada',
-        naTela: !!(v && v.presa), desde: v ? v.desde : null, queda: v ? v.queda : null };
+        naTela: !!(v && v.presa), desde: v ? v.desde : null, queda: v ? v.queda : null, site: v ? v.site : config.siteDe(c.url) };
     }),
     pastas: cfg.pastas,
     atual: cfg.atual,
@@ -850,6 +892,7 @@ ipcMain.on('abrir', (e, d) => {
   const n = (v) => Math.round(Number(v)) || 0;
   if (d.tipo === 'tela' && acharTela(d.tela)) abrirSobre({ tipo: 'tela', tela: d.tela, x: n(d.x), y: n(d.y) });
   else if (d.tipo === 'pasta' && pastaDe(d.pasta)) abrirSobre({ tipo: 'pasta', pasta: d.pasta, x: n(d.x), y: n(d.y), nova: d.nova === true });
+  else if (d.tipo === 'conta-nova' && pastaDe(d.pasta)) abrirSobre({ tipo: 'conta-nova', pasta: d.pasta, x: n(d.x), y: n(d.y) });
   else if (d.tipo === 'painel' && PAINEIS.includes(d.painel)) abrirSobre({ tipo: 'painel', painel: d.painel });
 });
 ipcMain.on('fechar', (e) => { if (daBarra(e)) fecharSobre(); });

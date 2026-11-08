@@ -116,6 +116,19 @@ function enderecoValido(url) {
   }
 }
 
+// Endereço de conta nova ou trocada pelo jogador: só https (sem ele, a senha do jogo viaja sem proteção).
+function enderecoSeguro(url) {
+  try { return new URL(url).protocol === 'https:'; } catch (e) { return false; }
+}
+
+// O site de um endereço, sem o "www.": é o que aparece na lateral e dá nome à pasta de um jogo novo.
+function siteDe(url) {
+  try { const u = new URL(url); return /^https?:$/.test(u.protocol) ? u.hostname.replace(/^www\./, '') : ''; } catch (e) { return ''; }
+}
+
+// A extensão do HuntDesk só lê o Huntera: só as contas dele a carregam.
+const ehHuntera = (url) => /(^|\.)huntera\.com\.br$/.test(siteDe(url));
+
 function nomeValido(nome, reserva) {
   const n = typeof nome === 'string' ? nome.trim().slice(0, 40) : '';
   return n || reserva;
@@ -228,4 +241,4 @@ function salvar(cfg) {
   timer = setTimeout(() => gravarAgora(cfg), 300);
 }
 
-module.exports = { carregar, salvar, gravarAgora, enderecoValido, nomeValido, limparGuarda, limparLigacao, abrirChave, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };
+module.exports = { carregar, salvar, gravarAgora, enderecoValido, enderecoSeguro, siteDe, ehHuntera, nomeValido, limparGuarda, limparLigacao, abrirChave, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };

@@ -220,6 +220,41 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, m
   await remover();
   conferir('o segundo clique remove a conta', await ate(() => estado().cfg.contas.length === 1 && naTela() === 'conta1', 5), naTela());
   fechar();
+
+  // Outros jogos: o jogo da conta nova é o do endereço (só https); conta de outro site vai para a pasta daquele site.
+  conferir('Huntera é reconhecido pelo endereço, e um site parecido não', config.ehHuntera('https://huntera.com.br/game')
+    && config.ehHuntera('https://www.huntera.com.br/') && !config.ehHuntera('https://huntera.com.br.exemplo.com/') && !config.ehHuntera('https://exemplo.com/huntera.com.br'));
+  const nContas = () => estado().cfg.contas.length;
+  acao('conta:adicionar', { pasta: 'pasta1', url: 'http://jogo-exemplo.com/game' });
+  conferir('endereço sem https não vira conta', nContas() === 1);
+  // Pelo "+ Adicionar conta" da lateral, colando o endereço na janelinha, como o jogador faz.
+  await clicar('[data-conta-nova="pasta1"]');
+  conferir('"+ Adicionar conta" abre a janelinha do endereço', await ate(() => sobre().isVisible(), 5));
+  await foto(janela, 'conta-nova', sobre().webContents);
+  const colar = (url) => sobre().webContents.executeJavaScript(`document.querySelector('#url-jogo').value = ${JSON.stringify(url)}; document.querySelector('[data-faz=adicionar-url]').click()`);
+  await colar('jogo-exemplo.com');
+  await espera(1);
+  conferir('endereço sem https:// na janelinha mostra o erro e não cria conta', nContas() === 1
+    && /https/.test(await sobre().webContents.executeJavaScript("(document.querySelector('#janela-menu .ruim') || {}).textContent || ''")));
+  await foto(janela, 'conta-nova-erro', sobre().webContents);
+  await colar('https://www.jogo-exemplo.com/game');
+  const pastaDoSite = () => pastas().find((p) => p.nome === 'jogo-exemplo.com');
+  conferir('outro jogo vai para uma pasta com o nome do site', await ate(() => nContas() === 2 && pastaDoSite() && pastaDoSite().telas.length === 1, 5),
+    pastas().map((p) => p.nome).join(', '));
+  const nova = estado().cfg.contas[1];
+  conferir('a conta nova já aparece na tela', naTela() === nova.id, naTela());
+  const lateral = await janela.webContents.executeJavaScript("[...document.querySelectorAll('.linha2')].map((e) => e.textContent).join(' | ')");
+  conferir('a lateral mostra o site de cada conta', lateral.includes('jogo-exemplo.com'), lateral);
+  acao('conta:adicionar', { pasta: 'pasta1', url: 'https://jogo-exemplo.com/entrar' });
+  conferir('outra conta do mesmo site vai para a mesma pasta', nContas() === 3 && pastaDoSite().telas.length === 2, linhas());
+  await clicar(`[data-conta-nova="${pastaDoSite().id}"]`);
+  await ate(() => sobre().isVisible(), 5);
+  await sobre().webContents.executeJavaScript("document.querySelector('[data-faz=mesmo-jogo]').click()");
+  conferir('"Mais uma conta deste jogo" usa o site da pasta', await ate(() => nContas() === 4 && pastaDoSite().telas.length === 3, 5), linhas());
+  // Downloads nas contas: bloqueados (o jogo não precisa, e uma página falsa poderia empurrar um arquivo).
+  estado().vivas.get(nova.id).view.webContents.downloadURL('data:text/plain,oi');
+  await espera(2);
+  conferir('download nas contas é bloqueado', /download bloqueado/.test(fs.readFileSync(medidor.arquivo, 'utf8')));
 }
 
 // Foto da barra e das faixas do programa (as páginas das contas não aparecem nela), ou da janelinha

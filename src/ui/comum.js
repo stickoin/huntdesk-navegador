@@ -34,6 +34,10 @@ function cresce(x) {
   const classe = x > 20 ? 'ruim' : x > 5 ? 'atencao' : 'bom';
   return `<span class="${classe}" title="Quanto a memória sobe por minuto (últimos 5 min)">${x >= 0 ? '+' : ''}${fmt(x, 1)} MB/min</span>`;
 }
+// O site de um endereço, sem o "www." (o mesmo que o programa mostra na lateral).
+function siteDe(url) {
+  try { const u = new URL(url); return /^https?:$/.test(u.protocol) ? u.hostname.replace(/^www\./, '') : ''; } catch (e) { return ''; }
+}
 const uso = (id) => (E && E.amostra && E.amostra.contas[id]) || {};
 const alerta = (id) => E && E.alertas && E.alertas.contas[id];
 const hora = (ms) => new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });

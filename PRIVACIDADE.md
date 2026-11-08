@@ -1,6 +1,6 @@
 # Privacidade — HuntDesk (navegador)
 
-Última atualização: 7 de novembro de 2026.
+Última atualização: 8 de novembro de 2026.
 
 - O navegador guarda no seu computador os logins das contas e as suas configurações, em
   `%APPDATA%\HuntDesk Navegador` (na versão da Microsoft Store, numa pasta própria do Windows). Nada disso é enviado
@@ -11,8 +11,9 @@
   estava ligada. Não tem nome de conta, endereço nem dados do jogo, e não é enviado para nós.
 - Para saber se há versão nova, o navegador consulta a página de versões do projeto no GitHub. A versão da Microsoft
   Store é atualizada pela própria Microsoft.
-- Em cada conta fica ligada a extensão do HuntDesk, baixada da loja do Chrome ao abrir o navegador e a cada 6 horas.
-  Ela lê os dados do jogo e só os envia para o app do HuntDesk (no seu PC ou na sua conta HuntDesk) depois que você a
+- Nas contas do jogo que o HuntDesk acompanha fica ligada a extensão do HuntDesk, baixada da loja do Chrome ao abrir o
+  navegador e a cada 6 horas. Nas contas de outros jogos ela fica desligada e nada é lido. Ela lê os dados do jogo e só
+  os envia para o app do HuntDesk (no seu PC ou na sua conta HuntDesk) depois que você a
   conecta. O que a sua conta HuntDesk guarda segue a política de privacidade do HuntDesk.
 - Quando o site do app do HuntDesk pede para ligar a leitura a uma conta, o navegador pergunta antes. Se você aceitar,
   ele busca no HuntDesk a chave dessa ligação e a guarda cifrada no seu computador. Essa chave só envia as leituras.
