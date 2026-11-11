@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Extensão de teste do HuntDesk",
+  "version": "1.0",
+  "description": "Só para os autotestes: marca a página onde está ligada. Não faz mais nada.",
+  "permissions": ["storage", "contextMenus"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "fundo.js" },
+  "content_scripts": [{ "matches": ["<all_urls>"], "js": ["pagina.js"], "run_at": "document_start" }],
+  "action": { "default_popup": "telinha.html" }
+}

@@ -39,6 +39,7 @@ function padrao() {
     visual: { lateral: true }, // lateral aberta (false = só as siglas)
     huntdesk: null, // ligação com o app do HuntDesk (ver limparLigacao); null = o jogador ainda não abriu a janela dele
     boasVindas: true, // true = falta mostrar a tela de boas-vindas (só quem abre o programa pela primeira vez)
+    extensoes: [], // extensões de terceiros que o jogador instalou e as contas onde cada uma liga (ver extensoes.js)
   };
 }
 
@@ -105,6 +106,21 @@ function paraDisco(cfg) {
   } catch (e) {
     return cfg; // sem a cifra do Windows, grava como a extensão guarda: melhor do que perder a ligação
   }
+}
+
+// Extensões de terceiros: id da Chrome Web Store, nome curto e só contas que existem. `pendente` = veio de uma cópia
+// das configurações e ainda não foi instalada neste PC (não liga em conta nenhuma até o jogador instalar).
+function limparExtensoes(bruta, idsContas) {
+  const vistos = new Set();
+  return (Array.isArray(bruta) ? bruta : []).filter((x) => x && /^[a-p]{32}$/.test(x.id) && !vistos.has(x.id) && vistos.add(x.id))
+    .slice(0, 50).map((x) => ({
+      id: x.id,
+      nome: nomeValido(x.nome, x.id).slice(0, 80),
+      versao: String(x.versao || '').replace(/[^\d.]/g, '').slice(0, 30) || '0',
+      origem: x.origem === 'pasta' ? 'pasta' : 'loja',
+      contas: [...new Set(Array.isArray(x.contas) ? x.contas : [])].filter((id) => idsContas.has(id)),
+      pendente: x.pendente === true,
+    }));
 }
 
 function enderecoValido(url) {
@@ -208,6 +224,7 @@ function limpar(bruto) {
   const v = bruto.visual || {};
   cfg.visual = { lateral: v.lateral !== false };
   cfg.huntdesk = bruto.huntdesk ? limparLigacao(bruto.huntdesk) : null;
+  cfg.extensoes = limparExtensoes(bruto.extensoes, new Set(cfg.contas.map((c) => c.id)));
   const j = bruto.janela;
   if (j && [j.width, j.height].every((n) => Number.isInteger(n) && n >= 400)) {
     cfg.janela = { width: j.width, height: j.height, x: Number.isInteger(j.x) ? j.x : undefined, y: Number.isInteger(j.y) ? j.y : undefined, maximizada: !!j.maximizada };
@@ -241,4 +258,4 @@ function salvar(cfg) {
   timer = setTimeout(() => gravarAgora(cfg), 300);
 }
 
-module.exports = { carregar, salvar, gravarAgora, enderecoValido, enderecoSeguro, siteDe, ehHuntera, nomeValido, limparGuarda, limparLigacao, abrirChave, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };
+module.exports = { carregar, salvar, gravarAgora, enderecoValido, enderecoSeguro, siteDe, ehHuntera, nomeValido, limparGuarda, limparLigacao, limparExtensoes, abrirChave, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };

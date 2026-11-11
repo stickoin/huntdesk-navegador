@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('p0', {
   menu: () => ipcRenderer.send('menu'),
   abrirMedicoes: () => ipcRenderer.send('abrir-medicoes'),
   abrirDados: () => ipcRenderer.send('abrir-dados'),
+  copia: (tipo, dados) => ipcRenderer.invoke('copia', tipo, dados), // exportar e importar as configurações (copia.js)
+  extensoes: (tipo, dados) => ipcRenderer.invoke('extensoes', tipo, dados), // extensões de terceiros (extensoes.js)
   boasVindas: (escolha) => ipcRenderer.send('boas-vindas', escolha),
   aoEstado: (fn) => ipcRenderer.on('estado', (e, estado) => fn(estado)),
   aoAbrir: (fn) => ipcRenderer.on('abrir', (e, dados) => fn(dados)),

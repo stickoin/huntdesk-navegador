@@ -12,6 +12,11 @@ Um navegador feito para quem joga jogos idle e de navegador com várias contas a
 - **Extensão do HuntDesk** já ligada nas contas do jogo que o HuntDesk acompanha, baixada da loja do Chrome. Conectar
   uma vez vale para todas essas contas. Nas contas de outros jogos ela fica desligada. O **app do HuntDesk** abre dentro
   do navegador.
+- **Outras extensões do Chrome:** em **Menu ▴ → Extensões…**, cole o link da extensão na loja do Chrome ou escolha
+  uma pasta. Antes de instalar aparece o que ela pede. Cada extensão fica ligada só nas contas que você marcar.
+- **Cópia das configurações:** em **Configurações**, exporte pastas, telas, contas e opções num arquivo e importe em
+  outro PC. Os logins vão só se você marcar, trancados com uma senha sua.
+- **Nome das contas:** dois cliques na conta, na lateral, ou o menuzinho da conta, para renomear.
 - **Controle de memória:** mostra quanto cada conta gasta de memória e de processador. Se uma conta passar do limite
   que você escolheu, o programa **avisa** ou **recarrega só aquela página**, conforme a sua escolha.
 - **Freio:** conta escondida ou fora da tela gasta menos.
@@ -41,7 +46,8 @@ se você apertar **Reiniciar agora**.
 - Desinstalar o programa **não apaga** essa pasta. Em **Configurações > Sobre** há um botão para abri-la.
 - O programa se conecta à internet só para:
   - ver se há versão nova, na página de versões do projeto no GitHub;
-  - baixar a extensão do HuntDesk da loja do Chrome, ao abrir e a cada 6 horas;
+  - baixar a extensão do HuntDesk e as outras extensões que você instalou pela loja do Chrome, ao abrir e a cada 6
+    horas;
   - abrir o app do HuntDesk e buscar a chave de ligação com a sua conta, se o site pedir e você aceitar. A chave fica
     cifrada no seu computador.
 - A extensão do HuntDesk lê os dados do jogo que o HuntDesk acompanha e só os manda para o app do HuntDesk (no seu PC ou na sua conta
@@ -58,6 +64,7 @@ npm run autoteste          # confere as telas com uma página de teste (não abr
 npm run autoteste:guarda   # confere a guarda de memória
 npm run autoteste:alivio   # confere o "aliviar memória"
 npm run instalador         # gera o instalador em dist/
+npm run conferir           # roda todos os testes, gera o instalador e testa o programa empacotado
 ```
 
 Só rodando pelo projeto as medições são gravadas, em `medicoes/` (o programa instalado não grava nenhuma). Para resumir as medições, rode `npm run resumo`.

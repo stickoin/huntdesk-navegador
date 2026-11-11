@@ -5,12 +5,15 @@
 //   npm run autoteste:guarda   → guarda de memória: aviso, "uma vez por subida" e recarga sozinha
 //   npm run autoteste:boasvindas → boas-vindas: aparece na primeira abertura e nunca mais
 //   npm run autoteste:conexao  → conexão em um passo, com um servidor falso aqui no PC: quem pode pedir, a pergunta e a chave
+//   npm run autoteste:copia    → cópia das configurações: exportar com e sem logins, senha, importar somando
+//   npm run autoteste:extensoes → extensões de terceiros (uma feita aqui, sem nada de fora): aviso, contas, remover
 
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { app, BrowserWindow, session } = require('electron');
 const config = require('./config');
+const { caminhoSeguro } = require('./copia');
 
 const espera = (seg) => new Promise((r) => setTimeout(r, seg * 1000));
 
@@ -251,10 +254,29 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, m
   await ate(() => sobre().isVisible(), 5);
   await sobre().webContents.executeJavaScript("document.querySelector('[data-faz=mesmo-jogo]').click()");
   conferir('"Mais uma conta deste jogo" usa o site da pasta', await ate(() => nContas() === 4 && pastaDoSite().telas.length === 3, 5), linhas());
-  // Downloads nas contas: bloqueados (o jogo não precisa, e uma página falsa poderia empurrar um arquivo).
+  // Downloads nas contas: bloqueados (o jogo não precisa, e uma página falsa poderia empurrar um arquivo). Confere pelo
+  // aviso que o programa anota, porque instalado ele não grava a planilha das medições.
+  let bloqueado = false;
+  const anotar = medidor.evento;
+  medidor.evento = (quem, nota) => { if (/^download bloqueado/.test(nota)) bloqueado = true; return anotar.call(medidor, quem, nota); };
   estado().vivas.get(nova.id).view.webContents.downloadURL('data:text/plain,oi');
-  await espera(2);
-  conferir('download nas contas é bloqueado', /download bloqueado/.test(fs.readFileSync(medidor.arquivo, 'utf8')));
+  conferir('download nas contas é bloqueado', await ate(() => bloqueado, 5));
+  medidor.evento = anotar;
+
+  // Nome da conta nova contado dentro da pasta (o id continua no contador geral, por causa do cofre do login).
+  const nomesDaPasta = () => pastaDoSite().telas.flatMap((t) => t.contas).map((id) => estado().cfg.contas.find((c) => c.id === id).nome).join(', ');
+  conferir('a conta nova é numerada dentro da pasta dela', nomesDaPasta() === 'Conta 1, Conta 2, Conta 3' && nova.id === 'conta5', `${nomesDaPasta()} (${nova.id})`);
+  // Dois cliques na tela da lateral: o menuzinho abre com o nome pronto para trocar.
+  fechar();
+  const telaNova = telaDe(nova.id);
+  await janela.webContents.executeJavaScript(`(() => { const sel = '[data-tela="${telaNova}"]'; document.querySelector(sel).click(); document.querySelector(sel).click(); })()`);
+  conferir('dois cliques na tela abrem o nome da conta para trocar', await ate(() => sobre().isVisible(), 5)
+    && await sobre().webContents.executeJavaScript("document.activeElement.classList.contains('nome-conta')"));
+  await sobre().webContents.executeJavaScript("(() => { const i = document.activeElement; i.value = 'Treino'; i.dispatchEvent(new Event('change', { bubbles: true })); })()");
+  conferir('o nome novo fica guardado', await ate(() => estado().cfg.contas.find((c) => c.id === nova.id).nome === 'Treino', 5));
+  const sigla = await janela.webContents.executeJavaScript(`document.querySelector('[data-tela="${telaNova}"] .ini').textContent`);
+  conferir('a sigla acompanha o nome', sigla === 'TR', sigla);
+  fechar();
 }
 
 // Foto da barra e das faixas do programa (as páginas das contas não aparecem nela), ou da janelinha
@@ -419,6 +441,199 @@ async function conexao({ acao, estado, conferir, janela, respostasTeste, origemD
 }
 
 // Aliviar: o Chrome da conta 1 recebe o aviso de "sem memória" sem recarregar a página.
+// Cópia das configurações. O "login" é de teste: um cookie e um Local Storage postos aqui na conta 1.
+async function copia({ acao, estado, conferir, janela, abrir, fechar, respostasTeste, copia: fazer }) {
+  const dados = app.getPath('userData');
+  const arq = (nome) => path.join(dados, nome + '.huntdesk');
+  const cfg = () => estado().cfg;
+  const telaDe = (id) => cfg().pastas.flatMap((p) => p.telas).find((t) => t.contas.includes(id)).id;
+  const pronta = (id) => estado().vivas.has(id) && estado().vivas.get(id).estado === 'ok';
+  await ate(() => pronta('conta1'), 20);
+  await session.fromPartition('persist:conta1').cookies.set({ url: 'https://jogo-exemplo.com/', name: 'sessao', value: 'valor-de-teste-123',
+    httpOnly: true, secure: true, expirationDate: Math.round(Date.now() / 1000) + 86400 });
+  await estado().vivas.get('conta1').view.webContents.executeJavaScript("localStorage.setItem('lembrar', 'guardado-no-site')");
+  acao('conta:cor', { id: 'conta1', cor: 3 });
+  acao('guarda:config', { limiteMb: 3000 });
+  const EXT = 'abcdefghijklmnopabcdefghijklmnop';
+  cfg().extensoes.push({ id: EXT, nome: 'Extensão da cópia', versao: '1.0', origem: 'loja', contas: ['conta1'], pendente: true });
+
+  respostasTeste.arquivoCopia = arq('sem');
+  let r = await fazer('exportar', {});
+  const sem = fs.readFileSync(arq('sem'), 'utf8');
+  conferir('exportar sem logins grava pastas, contas e opções', r.ok && r.contas === 2 && sem.includes('"Conta 1"') && sem.includes('3000')
+    && JSON.parse(sem).logins === null, JSON.stringify(r));
+  conferir('sem logins, nada do login vai no arquivo', !sem.includes('valor-de-teste') && !sem.includes('guardado-no-site'));
+  const extNoArquivo = JSON.parse(sem).extensoes;
+  conferir('a lista de extensões vai no arquivo, sem as pastas', extNoArquivo.length === 1 && extNoArquivo[0].contas[0] === 'conta1'
+    && !sem.includes('extensoes\\terceiros') && !('versao' in extNoArquivo[0]), JSON.stringify(extNoArquivo));
+  r = await fazer('exportar', { senha: 'curta' });
+  conferir('senha curta é recusada', r.erro === 'senha-curta', JSON.stringify(r));
+  respostasTeste.arquivoCopia = arq('com');
+  r = await fazer('exportar', { senha: 'senha-do-teste' });
+  const com = fs.readFileSync(arq('com'), 'utf8');
+  conferir('com logins, eles vão trancados (nada legível no arquivo)', r.ok && r.logins && JSON.parse(com).logins
+    && !com.includes('valor-de-teste') && !com.includes('guardado-no-site'), JSON.stringify(r));
+
+  // A conta 1 some (com o login) e o limite muda: importar traz de volta.
+  acao('conta:remover', { id: 'conta1' });
+  acao('guarda:config', { limiteMb: 2048 });
+  await espera(1);
+  r = await fazer('escolher', {});
+  conferir('escolher o arquivo mostra o que ele tem', r.ok && r.pastas === 1 && r.contas === 2 && r.logins, JSON.stringify(r));
+  r = await fazer('importar', { senha: 'senha-errada' });
+  conferir('senha errada não importa nada', r.erro === 'senha' && cfg().contas.length === 1, JSON.stringify(r));
+  r = await fazer('importar', { senha: 'senha-do-teste' });
+  const nova = cfg().contas.find((c) => c.nome === 'Conta 1');
+  conferir('importar soma só o que falta, com número novo', r.ok && r.novas === 1 && r.iguais === 1 && r.comLogin === 1 && nova
+    && nova.id === 'conta3' && nova.cor === 3, JSON.stringify(r));
+  conferir('as opções do arquivo passam a valer', cfg().guarda.limiteMb === 3000, String(cfg().guarda.limiteMb));
+  const extVolta = cfg().extensoes.find((x) => x.id === EXT);
+  conferir('a extensão volta presa à conta importada, ainda por instalar', extVolta && extVolta.pendente && extVolta.contas.join() === 'conta3'
+    && r.extensoesFaltando === 0, JSON.stringify(extVolta));
+  const ck = await session.fromPartition('persist:conta3').cookies.get({ name: 'sessao' });
+  conferir('o login (cookie) volta na conta importada', ck.length === 1 && ck[0].value === 'valor-de-teste-123' && ck[0].httpOnly);
+  acao('tela:ver', { pasta: cfg().atual.pasta, tela: telaDe('conta3') });
+  await ate(() => pronta('conta3'), 15);
+  const guardado = await estado().vivas.get('conta3').view.webContents.executeJavaScript("localStorage.getItem('lembrar')");
+  conferir('o que o site guardou no PC (Local Storage) volta junto', guardado === 'guardado-no-site', String(guardado));
+
+  respostasTeste.arquivoCopia = arq('sem');
+  await fazer('escolher', {});
+  r = await fazer('importar', {});
+  conferir('importar de novo não repete contas', r.ok && r.novas === 0 && r.iguais === 2 && cfg().contas.length === 2, JSON.stringify(r));
+  fs.writeFileSync(arq('estranho'), '{"oi": 1}');
+  respostasTeste.arquivoCopia = arq('estranho');
+  r = await fazer('escolher', {});
+  conferir('arquivo que não é cópia é recusado', r.erro === 'arquivo', JSON.stringify(r));
+  const cofre = path.join(dados, 'Partitions', 'conta9');
+  conferir('login do arquivo só entra nas pastas de login do cofre', !caminhoSeguro(cofre, 'Local Storage/../../config.json')
+    && !caminhoSeguro(cofre, 'Network/Cookies') && !caminhoSeguro(cofre, 'C:/x') && !!caminhoSeguro(cofre, 'Local Storage/leveldb/000003.log'));
+
+  // Pela janela de Configurações, como o jogador faz.
+  abrir({ tipo: 'painel', painel: 'config' });
+  await ate(() => estado().sobre.isVisible(), 5);
+  const sw = estado().sobre.webContents;
+  respostasTeste.arquivoCopia = arq('pela-tela');
+  await sw.executeJavaScript("document.querySelector('#copia-exportar').click()");
+  await ate(() => fs.existsSync(arq('pela-tela')), 5);
+  await espera(0.5);
+  const aviso = await sw.executeJavaScript("document.querySelector('#copia-aviso').textContent");
+  conferir('o botão Exportar guarda o arquivo e avisa', fs.existsSync(arq('pela-tela')) && /Cópia guardada/.test(aviso), aviso);
+  await sw.executeJavaScript("document.querySelector('#copia-levar').click()");
+  await sw.executeJavaScript("document.querySelector('#copia-senha').value = 'senha-do-teste'; document.querySelector('#copia-senha2').value = 'outra-senha'; document.querySelector('#copia-exportar').click()");
+  await espera(0.5);
+  const diferentes = await sw.executeJavaScript("document.querySelector('#copia-aviso').textContent");
+  conferir('senhas diferentes são avisadas na hora', /não são iguais/.test(diferentes), diferentes);
+  await foto(janela, 'copia-exportar', sw);
+  respostasTeste.arquivoCopia = arq('com');
+  await sw.executeJavaScript("document.querySelector('#copia-importar').click()");
+  await espera(1);
+  conferir('o botão Importar mostra o que vem e pede a senha', await sw.executeJavaScript("!!document.querySelector('#copia-confirmar') && !!document.querySelector('#copia-senha-abrir')"));
+  await foto(janela, 'copia-importar', sw);
+  await sw.executeJavaScript("document.querySelector('#copia-sem-logins').click()");
+  await espera(1);
+  const fim = await sw.executeJavaScript("document.querySelector('#copia-aviso').textContent");
+  conferir('importar sem os logins pela tela funciona', /Nada novo/.test(fim), fim);
+  fechar();
+}
+
+// Extensões de terceiros, com a extensão de teste da pasta src/teste/extensao-teste (feita aqui; só marca a página).
+async function extensoes({ acao, estado, conferir, janela, abrir, fechar, respostasTeste, extensoes: fazer }) {
+  const cfg = () => estado().cfg;
+  const pronta = (id) => estado().vivas.has(id) && estado().vivas.get(id).estado === 'ok';
+  await ate(() => pronta('conta1') && pronta('conta2'), 20);
+  const srv = http.createServer((req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<p>pagina</p>'); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const pagina = 'http://127.0.0.1:' + srv.address().port + '/';
+  const marcada = async (wc) => { await wc.loadURL(pagina); await espera(0.5); return wc.executeJavaScript('document.documentElement.dataset.extensaoTeste || ""'); };
+  const contaWc = (id) => estado().vivas.get(id).view.webContents;
+  const tem = (part, id) => !!session.fromPartition(part).extensions.getExtension(id);
+
+  let r = await fazer('preparar', { link: 'https://exemplo.com/nada' });
+  conferir('link que não é da loja é recusado', r.erro && /link da Chrome Web Store/.test(r.texto), JSON.stringify(r));
+  r = await fazer('preparar', { link: 'https://chromewebstore.google.com/detail/huntdesk/faeiljaidolgnnaodgddllcnjepaknmb' });
+  conferir('a do HuntDesk não entra como de terceiros', r.erro && /já vem/.test(r.texto), JSON.stringify(r));
+  respostasTeste.pastaExtensao = path.join(__dirname, 'teste', 'extensao-teste');
+  r = await fazer('pasta', {});
+  conferir('antes de instalar, mostra o que ela pede e o que não funciona aqui', r.ok && r.nome === 'Extensão de teste do HuntDesk'
+    && r.pede.some((f) => /inclusive o que você digita e o login/.test(f)) && r.naoFunciona.some((f) => /botão direito/.test(f)), JSON.stringify(r));
+  r = await fazer('instalar', {});
+  conferir('sem o "Entendi", não instala', r.erro === 'entendi' && !cfg().extensoes.length);
+  r = await fazer('instalar', { entendi: true });
+  const id = r.id;
+  conferir('com o "Entendi", instala sem ligar em conta nenhuma', r.ok && cfg().extensoes.length === 1 && !cfg().extensoes[0].contas.length
+    && !tem('persist:conta1', id) && !tem('persist:conta2', id), JSON.stringify(r));
+
+  // Pela tela, como o jogador faz: marca a conta 1 no painel.
+  // O app do HuntDesk aberto uma vez (o cofre dele tem de continuar sem extensão); depois volta às contas.
+  acao('app:mostrar');
+  await ate(() => estado().app, 5);
+  acao('tela:ver', { pasta: 'pasta1', tela: 'todas' });
+  abrir({ tipo: 'painel', painel: 'extensoes' });
+  await ate(() => estado().sobre.isVisible(), 5);
+  await espera(1);
+  const sw = estado().sobre.webContents;
+  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-conta="conta1"]').click()`);
+  await ate(() => cfg().extensoes[0].contas.join() === 'conta1', 5);
+  conferir('marcar a conta no painel liga só nela', tem('persist:conta1', id) && !tem('persist:conta2', id), cfg().extensoes[0].contas.join());
+  conferir('nunca no app do HuntDesk', !session.fromPartition('persist:app-huntdesk').extensions.getAllExtensions().length);
+  conferir('a página da conta 1 recebe a extensão', (await marcada(contaWc('conta1'))) === 'ligada');
+  conferir('a da conta 2 não', (await marcada(contaWc('conta2'))) === '');
+  let textoPainel = '';
+  const painelCerto = async () => {
+    textoPainel = await sw.executeJavaScript("document.querySelector('#janela-painel').innerText");
+    return /Extensão de teste do HuntDesk/.test(textoPainel) && /Conta 1/.test(textoPainel) && /F5/.test(textoPainel) && estado().sobre.isVisible();
+  };
+  let mostra = false;
+  for (let i = 0; i < 5 && !(mostra = await painelCerto()); i++) await espera(1);
+  conferir('o painel mostra a extensão, as contas e o aviso de recarregar', mostra, textoPainel.replace(/\s+/g, ' ').slice(-250));
+  await foto(janela, 'extensoes', sw);
+  // A tela dela abre numa conta onde está ligada.
+  const antes = BrowserWindow.getAllWindows().length;
+  r = await fazer('telinha', { id });
+  await espera(1);
+  const telinha = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith(`chrome-extension://${id}/`));
+  conferir('abrir a tela dela', r.ok && telinha && BrowserWindow.getAllWindows().length === antes + 1, JSON.stringify(r));
+  if (telinha) telinha.destroy();
+  // Fechar a tela dela devolve o foco à janela principal, que fecha a janelinha (como qualquer clique fora): abre de novo.
+  await espera(0.5);
+  abrir({ tipo: 'painel', painel: 'extensoes' });
+  await ate(() => estado().sobre.isVisible(), 5);
+  await espera(1);
+  // "todas desta pasta", depois desmarcar a conta 1
+  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-todas]').click()`);
+  conferir('"todas desta pasta" liga nas duas', await ate(() => tem('persist:conta2', id) && cfg().extensoes[0].contas.length === 2, 5));
+  r = await fazer('contas', { id, contas: ['conta2'] });
+  conferir('desmarcar tira da conta e pede F5', r.ok && r.recarregar === 1 && !tem('persist:conta1', id) && tem('persist:conta2', id), JSON.stringify(r));
+  // Conta nova não ganha a extensão sozinha; conta religada ganha de novo a que estava marcada.
+  acao('conta:adicionar', { nome: 'Nova' });
+  const nova = cfg().contas[cfg().contas.length - 1].id;
+  await ate(() => pronta(nova), 10);
+  conferir('conta nova não ganha extensão sozinha', !tem('persist:' + nova, id));
+  acao('conta:remover', { id: nova });
+  // Remover de vez
+  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-faz="remover"]').click()`);
+  await espera(0.5);
+  conferir('o primeiro clique em Remover só pede confirmação', cfg().extensoes.length === 1);
+  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-faz="remover"]').click()`);
+  const pasta = path.join(app.getPath('userData'), 'extensoes', 'terceiros');
+  // O Windows só apaga a pasta de vez quando o Chrome solta os arquivos dela; ao abrir o programa, o que sobrou é limpo.
+  conferir('o segundo remove: sai das contas e os arquivos somem', await ate(() => !cfg().extensoes.length, 5) && !tem('persist:conta2', id)
+    && await ate(() => !fs.readdirSync(pasta).length, 10), fs.readdirSync(pasta).join());
+  // Instalar pela tela, como o jogador faz: escolhe a pasta, lê o aviso, marca "Entendi" e instala.
+  await sw.executeJavaScript("document.querySelector('#ext-pasta').click()");
+  await espera(1);
+  const instalarAntes = await sw.executeJavaScript("(() => { const b = document.querySelector('#ext-instalar'); return b ? b.disabled : null; })()");
+  const telaInstalar = await sw.executeJavaScript("document.querySelector('#janela-painel').innerText");
+  conferir('a tela de instalação mostra o aviso e só deixa instalar com o "Entendi"', instalarAntes === true && /podem dar banimento/.test(telaInstalar)
+    && /inclusive o login/.test(telaInstalar), telaInstalar.replace(/\s+/g, ' ').slice(0, 160));
+  await foto(janela, 'extensoes-instalar', sw);
+  await sw.executeJavaScript("document.querySelector('#ext-entendi').click(); document.querySelector('#ext-instalar').click()");
+  conferir('com o "Entendi", o botão Instalar instala', await ate(() => cfg().extensoes.length === 1, 5));
+  fechar();
+  srv.close();
+}
+
 async function alivio({ acao, estado, medidor, conferir }) {
   await espera(20);
   const antes = estado().vivas.get('conta1').view.webContents.getURL();
@@ -454,7 +669,7 @@ function rodar(cenario, ctx) {
     resultados.push(!!ok);
     console.log(`autoteste: ${ok ? 'ok    ' : 'FALHOU'} ${nome}${detalhe ? ' — ' + detalhe : ''}`);
   };
-  const fn = { telas, guarda, alivio, quadros, boasvindas, conexao }[cenario];
+  const fn = { telas, guarda, alivio, quadros, boasvindas, conexao, copia, extensoes }[cenario];
   if (!fn) { console.log('autoteste: cenário desconhecido:', cenario); return ctx.sair(); }
   console.log(`autoteste: cenário "${cenario}"`);
   fn({ ...ctx, conferir })

@@ -142,6 +142,9 @@ body.camada { background: var(--bg-2); }
 #janela-menu .linha-form input { flex: 1; width: auto; }
 .linha-conta { display: grid; grid-template-columns: auto 1fr; gap: 4px 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--border); }
 .linha-conta .t { min-width: 0; }
+.nome-conta { display: block; width: 100%; padding: 1px 4px; margin-left: -5px; border: 1px solid transparent; background: transparent; font-weight: 600; } /* o nome da conta, que se troca clicando nele */
+.nome-conta:hover { border-color: var(--border); }
+.nome-conta:focus { border-color: var(--gold); background: var(--bg); }
 .linha-conta .aviso-caixa { grid-column: 1 / -1; margin: 0; }
 .linha-conta .botoes { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; }
 .linha-conta .botoes button { font-size: 11px; padding: 2px 7px; }
@@ -188,6 +191,10 @@ tr.soma td { color: var(--muted); }
 .config input[type="number"] { width: 100px; }
 .opcao { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 6px 4px; }
 .opcao input { margin-top: 3px; }
+.config .linha-form input[type="password"] { width: 180px; }
+.caixa-copia { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+.caixa-copia p { margin: 0 0 8px; }
+#copia-aviso { margin: 8px 0 0; white-space: normal; }
 
 /* boas-vindas da primeira abertura */
 .boas-vindas { padding: 20px 22px; }
@@ -199,3 +206,12 @@ tr.soma td { color: var(--muted); }
 .boas-vindas .caixa-app p { margin: 0; }
 .boas-vindas .botoes-fim { display: flex; justify-content: flex-end; gap: 8px; }
 .boas-vindas .botoes-fim button { padding: 7px 16px; font-size: 14px; }
+
+/* painel das extensões de terceiros */
+.ext-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-top: 10px; }
+.ext-item p { margin: 0 0 6px; white-space: normal; }
+.ext-contas { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 0 0 6px; }
+.ext-contas label { display: inline-flex; gap: 4px; align-items: center; }
+.ext-frases { margin: 0 0 8px; padding-left: 18px; white-space: normal; }
+#ext-aviso { margin: 8px 0 0; white-space: normal; }
+#ext-instalar:disabled { opacity: .45; }

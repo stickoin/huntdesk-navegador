@@ -4,6 +4,7 @@
 // Regra 1 do projeto: o programa só organiza as janelas e mede. Nunca clica, digita ou entra em nada dentro do
 // jogo — toda ação sai de um botão ou atalho apertado pelo jogador.
 
+const fs = require('node:fs');
 const path = require('node:path');
 const { app, BrowserWindow, WebContentsView, Menu, Notification, dialog, ipcMain, nativeTheme, net, session, shell } = require('electron');
 const { Medidor, apagarPastaAntiga } = require('./medidor');
@@ -11,8 +12,10 @@ const quedas = require('./quedas');
 const { Guarda } = require('./guarda');
 const { Atualizador } = require('./atualizador');
 const { Extensao, ID: ID_EXTENSAO } = require('./extensao');
+const { Extensoes } = require('./extensoes');
 const { LigarLeitura } = require('./ligacao');
 const config = require('./config');
+const copia = require('./copia');
 
 const ARGS = process.argv.slice(1);
 const CENARIO = (ARGS.find((a) => a.startsWith('--autoteste')) || '').replace(/^--autoteste-?/, '') || 'telas';
@@ -21,7 +24,7 @@ const TESTE = AUTOTESTE || ARGS.includes('--teste');
 const PAGINA_TESTE = path.join(__dirname, 'teste', 'pagina-teste.html');
 const FAIXA = 24; // faixa com o nome e os botões em cima de cada conta (só com mais de uma conta na tela)
 const VAO = 4; // espaço entre as contas
-const PAINEIS = ['medicoes', 'contas', 'config'];
+const PAINEIS = ['medicoes', 'contas', 'config', 'extensoes'];
 
 // O Electron põe o nome do programa no que toda página mostra aos sites; o site do jogo não precisa ver (decisão do
 // dono, 07/11). Tem de ser aqui, no valor geral: a janela que o jogo abre (a de login, por exemplo) não usa o do cofre da
@@ -41,6 +44,11 @@ const EXPERIMENTO_ALIVIO = ARGS.includes('--experimento-alivio');
 // Experimento: --quadros=30 faz o jogo desenhar no máximo 30 quadros por segundo (ver quadros.js). A opção do Chrome
 // limit-fps não serve: no Electron ela não limita as páginas.
 const QUADROS = Number((ARGS.find((a) => a.startsWith('--quadros=')) || '').split('=')[1]) || 0;
+// Experimento: --sem-extensao=conta3,conta4 abre essas contas do Huntera sem a extensão do HuntDesk, para comparar a
+// memória com as que têm. Elas não mandam dados para o app do HuntDesk enquanto isso.
+const SEM_EXTENSAO = new Set((ARGS.find((a) => a.startsWith('--sem-extensao=')) || '').split('=')[1]?.split(',').filter(Boolean) || []);
+// A conta leva a extensão do HuntDesk: é do Huntera e não está no experimento acima.
+const comExtensao = (id, url) => config.ehHuntera(url) && !SEM_EXTENSAO.has(id);
 
 let cfg = config.carregar(); // contas, pastas e telas (config.json)
 // Modo econômico: o modo do Chrome para computador fraco (menos memória, imagem um pouco mais simples). Só vale ao abrir o
@@ -54,6 +62,7 @@ let medidor = null;
 let guarda = null;
 let atualizador = null;
 let extensao = null; // extensão do HuntDesk nas contas (fora dos testes)
+let terceiros = null; // extensões de terceiros que o jogador instalou (ver extensoes.js)
 let janelaHuntDesk = null;
 let janelaBoasVindas = null;
 let appVista = null; // o site do app do HuntDesk, dentro da janela (ver vistaDoApp)
@@ -64,7 +73,7 @@ const APP_HUNTDESK = 'https://app.huntdesk.com.br/';
 const MARCA_APP = 'HuntDeskNavegador/' + app.getVersion();
 let origemApp = new URL(APP_HUNTDESK).origin; // de onde o site pode pedir para ligar a leitura (o autoteste troca por um local)
 let ligacao = null; // conexão em um passo (ver ligacao.js)
-const respostasTeste = { perguntas: [], aceitar: false }; // no autoteste, a pergunta ao jogador é respondida daqui
+const respostasTeste = { perguntas: [], aceitar: false, arquivoCopia: null, pastaExtensao: null }; // no autoteste, a pergunta ao jogador (e o arquivo da cópia) vêm daqui
 const avisosAbertos = new Set(); // notificações do Windows na tela (sem referência, o Windows as perde)
 let area = null; // espaço das contas (entre a lateral e a barra de baixo), informado pela própria barra
 let foco = null; // última conta clicada: o F5 recarrega só ela
@@ -153,11 +162,14 @@ function ligarConta(c) {
   wc.on('focus', () => { if (foco !== c.id) { foco = c.id; enviarEstado(); } });
   wc.on('before-input-event', (e, input) => atalho(e, input, c.id));
   // No teste da guarda a página gasta memória mesmo escondida (a janela do teste pode abrir atrás de outras).
+  // As extensões ligam antes de a página abrir: o que elas põem na página precisa estar lá desde o começo. As de terceiros
+  // só nas contas que o jogador marcou; a do HuntDesk só lê o Huntera, então as contas de outros jogos abrem sem ela.
+  const prontas = Promise.all([
+    ...extensoesDa(c.id).map((x) => terceiros.naConta(ses, x)),
+    ...(!TESTE && comExtensao(c.id, c.url) ? [extensao.naConta(ses, cfg.huntdesk)] : []),
+  ]);
   if (TESTE) wc.loadFile(PAGINA_TESTE, { query: { conta: c.nome, vazar: CENARIO === 'guarda' ? 'sempre' : 'desenho' } });
-  // A extensão do HuntDesk liga antes do jogo abrir: o leitor dela precisa estar na página desde o começo. Ela só lê o
-  // Huntera, então as contas de outros jogos abrem sem ela.
-  else if (config.ehHuntera(c.url)) extensao.naConta(ses, cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(c.url); });
-  else wc.loadURL(c.url);
+  else prontas.then(() => { if (!wc.isDestroyed()) wc.loadURL(c.url); });
   medidor.evento(c.id, 'ligada');
 }
 
@@ -362,8 +374,9 @@ function proximaTela(passo) {
 // site, que nasce com o nome dele se ainda não existir.
 function novaConta({ nome, url, pasta }) {
   if (url && !config.enderecoSeguro(url)) return;
+  // O id segue o contador geral (ele dá nome ao cofre do login e nunca se repete); o nome é contado dentro da pasta.
   const id = 'conta' + cfg.proximaConta++;
-  const c = { id, nome: config.nomeValido(nome, 'Conta ' + id.slice(5)), url: url || config.JOGO_PADRAO, freio: true, ligada: true };
+  const c = { id, nome: null, url: url || config.JOGO_PADRAO, freio: true, ligada: true };
   const site = config.siteDe(c.url);
   const sitesDa = (q) => new Set(q.telas.flatMap((t) => t.contas).map((x) => config.siteDe(conta(x).url)));
   let p = pastaDe(pasta) || pastaDe(cfg.atual.pasta) || cfg.pastas[0];
@@ -374,6 +387,11 @@ function novaConta({ nome, url, pasta }) {
       cfg.pastas.push(p);
     }
   }
+  // "Conta 1", "Conta 2"… pela pasta: o menor número que ainda não está em uso nela (uma pasta nova começa do 1).
+  const usados = new Set(p.telas.flatMap((t) => t.contas).map((x) => conta(x).nome));
+  let n = 1;
+  while (usados.has('Conta ' + n)) n++;
+  c.nome = config.nomeValido(nome, 'Conta ' + n);
   cfg.contas.push(c);
   const t = { id: 'tela' + cfg.proximaTela++, contas: [id] };
   p.telas.push(t);
@@ -385,6 +403,7 @@ function novaConta({ nome, url, pasta }) {
 function removerConta(id) {
   desligarConta(id);
   cfg.contas = cfg.contas.filter((c) => c.id !== id);
+  for (const x of cfg.extensoes) x.contas = x.contas.filter((i) => i !== id);
   for (const p of cfg.pastas) {
     for (const t of p.telas) t.contas = t.contas.filter((x) => x !== id);
     p.telas = p.telas.filter((t) => t.contas.length);
@@ -422,7 +441,7 @@ async function aliviar(id, quem) {
 async function abrirHuntDesk() {
   if (janelaHuntDesk) { janelaHuntDesk.focus(); return; }
   // Uma conta do Huntera ligada: a da tela em que o jogador está, se der.
-  const id = [foco, ...naTela(), ...vivas.keys()].find((x) => x && vivas.has(x) && config.ehHuntera(conta(x).url));
+  const id = [foco, ...naTela(), ...vivas.keys()].find((x) => x && vivas.has(x) && comExtensao(x, conta(x).url));
   const aviso = (detail) => dialog.showMessageBox(win, { type: 'info', title: 'HuntDesk', message: 'App do HuntDesk', detail });
   if (!id) return aviso('Ligue uma conta do Huntera primeiro: a janela do HuntDesk mostra o que a conta está lendo.');
   const ses = session.fromPartition('persist:' + id);
@@ -444,7 +463,7 @@ async function abrirHuntDesk() {
     cfg.huntdesk = l;
     config.salvar(cfg);
     for (const outra of vivas.keys()) {
-      if (outra !== id && config.ehHuntera(conta(outra).url)) extensao.gravar(session.fromPartition('persist:' + outra), l).catch((e) => medidor.evento(outra, 'ligação com o HuntDesk não copiada: ' + e.message));
+      if (outra !== id && comExtensao(outra, conta(outra).url)) extensao.gravar(session.fromPartition('persist:' + outra), l).catch((e) => medidor.evento(outra, 'ligação com o HuntDesk não copiada: ' + e.message));
     }
     medidor.evento('programa', `ligação com o HuntDesk mudou (PC ${l.pc ? 'sim' : 'não'}, nuvem ${l.cloud ? 'sim' : 'não'}); copiada para as contas`);
   };
@@ -511,7 +530,189 @@ function aplicarLigacao(cloud) {
   config.salvar(cfg);
   if (!extensao) return;
   for (const id of vivas.keys()) {
-    if (config.ehHuntera(conta(id).url)) extensao.gravar(session.fromPartition('persist:' + id), cfg.huntdesk).catch((e) => medidor.evento(id, 'ligação com o HuntDesk não copiada: ' + e.message));
+    if (comExtensao(id, conta(id).url)) extensao.gravar(session.fromPartition('persist:' + id), cfg.huntdesk).catch((e) => medidor.evento(id, 'ligação com o HuntDesk não copiada: ' + e.message));
+  }
+}
+
+// ---------- extensões de terceiros (Menu ▴ → Extensões…; ver extensoes.js) ----------
+
+const extensoesDa = (id) => cfg.extensoes.filter((x) => !x.pendente && x.contas.includes(id));
+const telinhas = new Map(); // id-versão → a tela que a extensão oferece (ou null)
+function telinhaDe(x) {
+  const k = x.id + '-' + x.versao;
+  if (!telinhas.has(k)) telinhas.set(k, x.pendente ? null : terceiros.telinha(x));
+  return telinhas.get(k);
+}
+let extPreparada = null; // extensão baixada ou copiada, esperando o "Entendi" e o Instalar
+
+// Abre a tela da extensão (a do ícone dela no Chrome) numa janela pequena, no cofre de uma conta onde ela está ligada.
+function abrirTelinha(x) {
+  const id = [foco, ...vivas.keys()].find((c) => c && vivas.has(c) && x.contas.includes(c));
+  const tela = telinhaDe(x);
+  if (!id || !tela) return { erro: id ? 'sem-telinha' : 'sem-conta' };
+  const j = new BrowserWindow({
+    parent: win, width: 420, height: 600, minimizable: false, maximizable: false, autoHideMenuBar: true,
+    title: x.nome + ' · ' + conta(id).nome, backgroundColor: '#ffffff',
+    webPreferences: { session: session.fromPartition('persist:' + id), sandbox: true, contextIsolation: true },
+  });
+  j.on('page-title-updated', (e) => e.preventDefault());
+  j.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/i.test(url) && !TESTE) shell.openExternal(url); return { action: 'deny' }; });
+  j.loadURL(`chrome-extension://${x.id}/${tela}`);
+  return { ok: true, janela: j };
+}
+
+async function fazerExtensoes(tipo, dados) {
+  dados = dados || {};
+  const x = typeof dados.id === 'string' && cfg.extensoes.find((e) => e.id === dados.id);
+  try {
+    if (tipo === 'preparar' || tipo === 'pasta') {
+      if (extPreparada) { terceiros.descartar(extPreparada); extPreparada = null; }
+      let origem;
+      if (tipo === 'pasta') {
+        let pasta = respostasTeste.pastaExtensao;
+        if (!TESTE) {
+          const pai = sobre && !sobre.isDestroyed() && sobre.isVisible() ? sobre : win;
+          const r = await dialog.showOpenDialog(pai, { title: 'Escolha a pasta da extensão (a que tem o manifest.json)', properties: ['openDirectory'] });
+          pasta = r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+        }
+        if (!pasta) return { cancelado: true };
+        origem = { pasta };
+      } else origem = { link: String(dados.link || '') };
+      const p = await terceiros.preparar(origem);
+      p.para = typeof dados.para === 'string' ? dados.para : null; // instalar uma que veio da cópia das configurações
+      extPreparada = p;
+      return { ok: true, nome: p.nome, versao: p.versao, origem: p.origem, descricao: p.descricao, pede: p.pede, naoFunciona: p.naoFunciona };
+    }
+    if (tipo === 'cancelar') { if (extPreparada) terceiros.descartar(extPreparada); extPreparada = null; return { ok: true }; }
+    if (tipo === 'instalar') {
+      if (!extPreparada) return { erro: 'nada' };
+      if (dados.entendi !== true) return { erro: 'entendi' };
+      const p = extPreparada;
+      extPreparada = null;
+      const item = terceiros.confirmar(p);
+      // A que já existia (instalada de novo) ou a que veio da cópia mantém as contas.
+      const antiga = cfg.extensoes.find((e) => e.id === item.id) || (p.para && cfg.extensoes.find((e) => e.id === p.para));
+      if (antiga) item.contas = antiga.contas.filter((id) => conta(id));
+      cfg.extensoes = cfg.extensoes.filter((e) => e !== antiga && e.id !== item.id);
+      cfg.extensoes.push(item);
+      for (const id of item.contas) if (vivas.has(id)) await terceiros.naConta(session.fromPartition('persist:' + id), item);
+      config.salvar(cfg);
+      enviarEstado();
+      return { ok: true, id: item.id, nome: item.nome };
+    }
+    if (!x) return { erro: 'nada' };
+    if (tipo === 'contas') {
+      const novas = [...new Set(Array.isArray(dados.contas) ? dados.contas : [])].filter((id) => conta(id));
+      const mudaram = [];
+      for (const id of new Set([...x.contas, ...novas])) {
+        const liga = novas.includes(id), estava = x.contas.includes(id);
+        if (liga === estava) continue;
+        if (vivas.has(id)) {
+          const ses = session.fromPartition('persist:' + id);
+          if (liga && !x.pendente) await terceiros.naConta(ses, x);
+          if (!liga) terceiros.tirarDaConta(ses, x.id);
+          mudaram.push(id);
+        }
+        medidor.evento(id, `extensão ${x.nome} ${liga ? 'ligada' : 'desligada'} nesta conta`);
+      }
+      x.contas = novas;
+      config.salvar(cfg);
+      enviarEstado();
+      return { ok: true, recarregar: mudaram.length };
+    }
+    if (tipo === 'remover') {
+      await terceiros.apagar(x, cfg.contas.map((c) => session.fromPartition('persist:' + c.id)));
+      cfg.extensoes = cfg.extensoes.filter((e) => e !== x);
+      config.salvar(cfg);
+      enviarEstado();
+      return { ok: true };
+    }
+    if (tipo === 'telinha') {
+      const r = abrirTelinha(x);
+      return r.erro ? r : { ok: true };
+    }
+    return { erro: 'tipo' };
+  } catch (e) {
+    medidor.evento('programa', 'extensões: ' + e.message);
+    return { erro: 'falha', texto: e.message };
+  }
+}
+
+// ---------- cópia das configurações (Configurações → Cópia das configurações; ver copia.js) ----------
+
+let copiaEscolhida = null; // arquivo de cópia já conferido, esperando o jogador confirmar a importação
+const pastaDoCofre = (id) => path.join(app.getPath('userData'), 'Partitions', id);
+
+// A janela do Windows para escolher onde guardar ou qual abrir (no autoteste, o arquivo vem do próprio teste).
+async function escolherArquivoCopia(guardar) {
+  if (TESTE) return respostasTeste.arquivoCopia || null;
+  const pai = sobre && !sobre.isDestroyed() && sobre.isVisible() ? sobre : win;
+  const filters = [{ name: 'Cópia do HuntDesk', extensions: [copia.EXTENSAO] }];
+  if (guardar) {
+    const dia = new Date().toISOString().slice(0, 10);
+    const r = await dialog.showSaveDialog(pai, { title: 'Exportar as configurações', filters,
+      defaultPath: path.join(app.getPath('documents'), `HuntDesk-configuracoes-${dia}.${copia.EXTENSAO}`) });
+    return r.canceled ? null : r.filePath;
+  }
+  const r = await dialog.showOpenDialog(pai, { title: 'Importar as configurações', filters, properties: ['openFile'] });
+  return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+}
+
+async function fazerCopia(tipo, dados) {
+  const senha = dados && typeof dados.senha === 'string' && dados.senha ? dados.senha : null;
+  try {
+    if (tipo === 'exportar') {
+      if (senha && senha.length < copia.SENHA_MIN) return { erro: 'senha-curta' };
+      const arquivo = await escolherArquivoCopia(true);
+      if (!arquivo) return { cancelado: true };
+      const c = copia.montar(cfg, app.getVersion());
+      if (senha) {
+        const contas = {};
+        for (const x of cfg.contas) contas[x.id] = await copia.tirarLogins(session.fromPartition('persist:' + x.id), pastaDoCofre(x.id));
+        const h = cfg.huntdesk && cfg.huntdesk.cloud && cfg.huntdesk.cloud.key ? cfg.huntdesk : null;
+        c.logins = copia.trancar({ contas, huntdesk: h }, senha);
+      }
+      fs.writeFileSync(arquivo + '.tmp', JSON.stringify(c, null, 1));
+      fs.renameSync(arquivo + '.tmp', arquivo);
+      medidor.evento('programa', `configurações exportadas: ${cfg.contas.length} contas, ${senha ? 'com' : 'sem'} os logins`);
+      return { ok: true, arquivo: path.basename(arquivo), contas: cfg.contas.length, logins: !!senha };
+    }
+    if (tipo === 'escolher') {
+      copiaEscolhida = null;
+      const arquivo = await escolherArquivoCopia(false);
+      if (!arquivo) return { cancelado: true };
+      if (fs.statSync(arquivo).size > 200 * 1024 * 1024) return { erro: 'arquivo' };
+      copiaEscolhida = copia.ler(fs.readFileSync(arquivo, 'utf8'));
+      const c = copiaEscolhida;
+      return { ok: true, arquivo: path.basename(arquivo), pastas: c.pastas.length, contas: c.contas, logins: !!c.logins };
+    }
+    if (tipo === 'cancelar') { copiaEscolhida = null; return { ok: true }; }
+    if (tipo === 'importar') {
+      const c = copiaEscolhida;
+      if (!c) return { erro: 'arquivo' };
+      const logins = senha && c.logins ? copia.destrancar(c.logins, senha) : null; // senha errada: a cópia continua escolhida
+      copiaEscolhida = null;
+      const r = copia.somar(cfg, c);
+      let comLogin = 0;
+      if (logins) {
+        for (const { id, ref } of r.novas) {
+          const pacote = ref && logins.contas[ref];
+          if (pacote && await copia.devolverLogins(session.fromPartition('persist:' + id), pastaDoCofre(id), pacote)) comLogin++;
+        }
+        const h = logins.huntdesk && logins.huntdesk.cloud;
+        if (h && !(cfg.huntdesk && cfg.huntdesk.cloud)) aplicarLigacao(h);
+      }
+      medidor.evento('programa', `configurações importadas: ${r.novas.length} contas novas (${comLogin} com login), ${r.iguais} já existiam`);
+      config.salvar(cfg);
+      arrumar();
+      // O modo econômico do arquivo só vale com o programa reaberto (como no botão Economia).
+      if (r.economico !== null) setTimeout(() => acao('config:economico', { ligado: r.economico }), TESTE ? 0 : 2500);
+      return { ok: true, novas: r.novas.length, iguais: r.iguais, comLogin, reabre: r.economico !== null && !TESTE, extensoesFaltando: r.extensoesFaltando };
+    }
+    return { erro: 'tipo' };
+  } catch (e) {
+    if (!e.codigo) medidor.evento('programa', 'cópia das configurações falhou: ' + e.message);
+    return { erro: e.codigo || 'falha' };
   }
 }
 
@@ -676,8 +877,8 @@ const ACOES = {
     // A extensão do HuntDesk entra ou sai junto com o Huntera.
     const wc = v.view.webContents;
     const ses = session.fromPartition('persist:' + id);
-    if (config.ehHuntera(url) && !eraHuntera) return extensao.naConta(ses, cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(url); });
-    if (!config.ehHuntera(url) && ses.extensions.getExtension(ID_EXTENSAO)) ses.extensions.removeExtension(ID_EXTENSAO);
+    if (comExtensao(id, url) && !eraHuntera) return extensao.naConta(ses, cfg.huntdesk).then(() => { if (!wc.isDestroyed()) wc.loadURL(url); });
+    if (!comExtensao(id, url) && ses.extensions.getExtension(ID_EXTENSAO)) ses.extensions.removeExtension(ID_EXTENSAO);
     wc.loadURL(url);
   },
   'conta:remover': ({ id }) => { if (conta(id)) removerConta(id); },
@@ -736,6 +937,7 @@ function enviarEstado() {
     visual: cfg.visual,
     faixas: celulas.length > 1,
     app: mostrandoApp,
+    extensoes: cfg.extensoes.map((x) => ({ ...x, telinha: !!(terceiros && telinhaDe(x)) })),
     cheia: win.isFullScreen(),
     aberto: sobreAberto,
     series: Object.fromEntries(series),
@@ -848,6 +1050,18 @@ function criarJanela() {
     aplicar: aplicarLigacao, buscar: (...a) => net.fetch(...a), evento: (nota) => medidor.evento('programa', nota) });
   // Nos testes as contas abrem a página de teste, sem extensão e sem internet.
   if (!TESTE) { extensao = new Extensao({ evento: (nota) => medidor.evento('programa', nota) }); extensao.comecar(); }
+  // As de terceiros: apaga as pastas que sobraram (versões antigas) e, fora dos testes, procura versão nova da loja a cada 6 h.
+  terceiros = new Extensoes({ evento: (nota) => medidor.evento('programa', nota) });
+  terceiros.limpar(cfg.extensoes);
+  if (!TESTE) {
+    const procurar = () => terceiros.atualizar(cfg.extensoes.filter((x) => !x.pendente)).then((mudaram) => {
+      if (!mudaram.length) return;
+      for (const n of mudaram) { const x = cfg.extensoes.find((e) => e.id === n.id); if (x) x.versao = n.versao; }
+      config.salvar(cfg);
+    });
+    setTimeout(procurar, 60000);
+    setInterval(procurar, 6 * 60 * 60000);
+  }
   // Abrir as contas ao iniciar é escolha do jogador (Configurações); senão, cada uma espera ele apertar Ligar.
   if (cfg.abrirAoIniciar) cfg.contas.filter((c) => c.ligada).forEach(ligarConta);
   arrumar();
@@ -864,12 +1078,12 @@ function criarJanela() {
   atualizador = new Atualizador({ ativo: !TESTE, aoMudar: enviarEstado, evento: (nota) => medidor.evento('programa', nota) });
   atualizador.comecar();
   medidor.comecar();
-  medidor.evento('programa', `modo econômico ${ECONOMICO ? 'ligado' : 'desligado'}; quadros ${QUADROS ? 'limitados a ' + QUADROS + '/s' : 'sem limite'}`);
+  medidor.evento('programa', `modo econômico ${ECONOMICO ? 'ligado' : 'desligado'}; quadros ${QUADROS ? 'limitados a ' + QUADROS + '/s' : 'sem limite'}${SEM_EXTENSAO.size ? '; sem a extensão: ' + [...SEM_EXTENSAO].join(', ') : ''}`);
   if (ARGS.includes('--diagnostico')) { const d = () => cfg.contas.forEach((c) => diagnosticar(c.id)); setTimeout(d, 60000); setInterval(d, 5 * 60000); }
   if (EXPERIMENTO_ALIVIO) setInterval(() => ['conta1', 'conta2'].forEach((id) => aliviar(id, 'pelo experimento')), 5 * 60000);
   if (AUTOTESTE) {
     require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, abrir: abrirSobre, fechar: fecharSobre, abrirBoasVindas, marcaApp: MARCA_APP,
-      respostasTeste, origemDoApp: (o) => { origemApp = o; },
+      respostasTeste, origemDoApp: (o) => { origemApp = o; }, copia: fazerCopia, extensoes: fazerExtensoes,
       estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre, app: appVista, mostrandoApp, boasVindas: janelaBoasVindas }), sair: () => app.quit() });
   }
 }
@@ -890,12 +1104,13 @@ ipcMain.on('abrir', (e, d) => {
   // O ⋯ da conta com a janelinha dela aberta: o clique já a fechou (foco na principal) e não abre de novo.
   if (qualSobre(d) === sobreFechado.qual && Date.now() - sobreFechado.quando < 400) return;
   const n = (v) => Math.round(Number(v)) || 0;
-  if (d.tipo === 'tela' && acharTela(d.tela)) abrirSobre({ tipo: 'tela', tela: d.tela, x: n(d.x), y: n(d.y) });
+  if (d.tipo === 'tela' && acharTela(d.tela)) abrirSobre({ tipo: 'tela', tela: d.tela, x: n(d.x), y: n(d.y), renomear: d.renomear === true });
   else if (d.tipo === 'pasta' && pastaDe(d.pasta)) abrirSobre({ tipo: 'pasta', pasta: d.pasta, x: n(d.x), y: n(d.y), nova: d.nova === true });
   else if (d.tipo === 'conta-nova' && pastaDe(d.pasta)) abrirSobre({ tipo: 'conta-nova', pasta: d.pasta, x: n(d.x), y: n(d.y) });
   else if (d.tipo === 'painel' && PAINEIS.includes(d.painel)) abrirSobre({ tipo: 'painel', painel: d.painel });
 });
 ipcMain.on('fechar', (e) => { if (daBarra(e)) fecharSobre(); });
+ipcMain.handle('copia', (e, tipo, dados) => (daBarra(e) ? fazerCopia(tipo, dados) : { erro: 'origem' }));
 // O site do app pede para ligar a leitura. Só vale da página principal da vista do app, no endereço do app e com ela na
 // tela: confere aqui de novo, porque nada que venha da página é confiável por si só.
 ipcMain.handle('app:ligar-leitura', (e, codigo) => {
@@ -925,11 +1140,12 @@ ipcMain.on('menu', (e) => {
   const item = (label, painel) => ({ label, click: () => abrirSobre({ tipo: 'painel', painel }) });
   Menu.buildFromTemplate([item('Medições', 'medicoes'), item('Contas', 'contas'), item('Configurações', 'config'),
     { type: 'separator' }, { label: 'Abrir o app do HuntDesk', click: () => acao('app:mostrar') },
-    { label: 'Extensão HuntDesk…', enabled: !!extensao, click: abrirHuntDesk },
+    { label: 'Extensão HuntDesk…', enabled: !!extensao, click: abrirHuntDesk }, item('Extensões…', 'extensoes'),
     { type: 'separator' }, { label: 'HuntDesk ' + app.getVersion(), enabled: false }]).popup({ window: win });
 });
 ipcMain.on('abrir-medicoes', (e) => { if (daBarra(e) && medidor.arquivo) shell.openPath(medidor.pasta); });
 ipcMain.on('abrir-dados', (e) => { if (daBarra(e)) shell.openPath(app.getPath('userData')); });
+ipcMain.handle('extensoes', (e, tipo, dados) => (daBarra(e) ? fazerExtensoes(tipo, dados) : { erro: 'origem' }));
 
 if (!app.requestSingleInstanceLock()) {
   app.quit(); // duas cópias abertas disputariam o mesmo cofre de login

@@ -13,6 +13,7 @@ function abrirMenu(el, dados) {
 const abrirPainel = (painel) => window.p0.abrir({ tipo: 'painel', painel });
 let esperandoPasta = 0; // "+ Nova pasta": quantas pastas havia, para abrir o menuzinho da nova quando ela chegar
 let arrastando = null; // { tipo: 'tela' | 'pasta', id } enquanto o jogador arrasta uma linha da lateral
+let ultimoClique = {}; // { tela, quando }: o clique de antes, para reconhecer dois cliques seguidos
 
 // Contas que precisam de atenção: caíram, travaram, não abriram ou passaram do limite de memória.
 const problemas = () => E.contas.filter((c) => c.ligada && (alerta(c.id) || ['caiu', 'travada', 'erro'].includes(c.estado)));
@@ -45,7 +46,7 @@ function desenharLado() {
       const cs = t.contas.map(contaDe).filter(Boolean);
       const classes = ['tela', atual.tela === t.id ? 'atual' : '', ab.tela === t.id ? 'menu' : ''].join(' ');
       return `<div class="${classes}" role="button" tabindex="0" draggable="true" data-tela="${esc(t.id)}" data-pasta-da-tela="${esc(p.id)}"
-          title="Clique para ver ${cs.length > 1 ? 'estas contas lado a lado' : 'esta conta'}. Arraste para mudar de lugar.
+          title="Clique para ver ${cs.length > 1 ? 'estas contas lado a lado' : 'esta conta'}. Dois cliques: trocar o nome. Arraste para mudar de lugar.
 Botão direito ou ⋯: as contas desta tela, a cor delas, juntar e separar.">
         <span class="siglas">${cs.map((c) => ini(c, estadoDe(c, alerta(c.id)).bola)).join('')}</span>
         <span class="nomes some">${cs.map((c) => esc(c.nome)).join(' + ')}</span>
@@ -151,7 +152,17 @@ document.addEventListener('click', (ev) => {
   if (b.dataset.menuPasta) return abrirMenu(b.closest('[data-pasta]'), { tipo: 'pasta', pasta: b.dataset.menuPasta });
   if (b.dataset.abrirPasta) return acao('pasta:abrir', { id: b.dataset.abrirPasta });
   if (b.dataset.contaNova) return abrirMenu(b, { tipo: 'conta-nova', pasta: b.dataset.contaNova });
-  if (b.dataset.tela) return acao('tela:ver', { pasta: b.dataset.pastaDaTela, tela: b.dataset.tela });
+  if (b.dataset.tela) {
+    // Dois cliques seguidos na mesma tela: abre o menuzinho com o nome da conta pronto para trocar. Conta pelo tempo,
+    // porque o 1º clique troca a tela e redesenha a lateral (o duplo clique do navegador se perderia).
+    const agora = Date.now();
+    if (ultimoClique.tela === b.dataset.tela && agora - ultimoClique.quando < 450) {
+      ultimoClique = {};
+      return abrirMenu(document.querySelector(`[data-tela="${CSS.escape(b.dataset.tela)}"]`), { tipo: 'tela', tela: b.dataset.tela, renomear: true });
+    }
+    ultimoClique = { tela: b.dataset.tela, quando: agora };
+    return acao('tela:ver', { pasta: b.dataset.pastaDaTela, tela: b.dataset.tela });
+  }
   if (b.dataset.pasta) return acao('tela:ver', { pasta: b.dataset.pasta, tela: 'todas' });
   if (b.dataset.abrir) return abrirPainel(b.dataset.abrir);
   if (b.dataset.dispensar) return acao('guarda:dispensar', { id: b.dataset.dispensar });

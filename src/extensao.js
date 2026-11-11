@@ -1,11 +1,11 @@
 'use strict';
 // Extensão do HuntDesk dentro das contas: a mesma que o jogador usaria no Chrome, baixada da Chrome Web Store (a
 // versão já aprovada lá) e ligada no cofre de cada conta. Ela só lê o jogo e manda para o app do HuntDesk (servidor do
-// PC ou conta na nuvem); nada daqui fala com o jogo. Só esta extensão entra no navegador (decisão do dono, 02/11):
-// uma qualquer poderia jogar sozinha (regra 1) ou ver o login das contas.
+// PC ou conta na nuvem); nada daqui fala com o jogo. As extensões de terceiros, que o jogador escolhe (decisão do
+// dono, 10/11), ficam em extensoes.js e usam o mesmo caminho para baixar da loja.
 //
 // O Electron não instala pela loja nem abre o arquivo da loja (.crx), então este módulo baixa o .crx, confere a
-// assinatura (tem de ser a da extensão do HuntDesk) e abre o zip numa pasta por versão. Versão nova baixada vale na
+// assinatura (tem de ser a da extensão pedida) e abre o zip numa pasta por versão. Versão nova baixada vale na
 // próxima vez que o programa abrir: trocar com o jogo aberto pararia o envio até um F5.
 
 const fs = require('node:fs');
@@ -49,7 +49,7 @@ const idDaChave = (chave) => crypto.createHash('sha256').update(chave).digest('h
   .replace(/./g, (h) => String.fromCharCode(97 + parseInt(h, 16)));
 
 // Confere o .crx (formato 3) e devolve o zip de dentro e a chave pública da extensão.
-function abrirCrx(crx) {
+function abrirCrx(crx, idEsperado) {
   if (crx.toString('latin1', 0, 4) !== 'Cr24' || crx.readUInt32LE(4) !== 3) throw new Error('não é um .crx da loja');
   const tamCab = crx.readUInt32LE(8);
   const cab = crx.subarray(12, 12 + tamCab), zip = crx.subarray(12 + tamCab);
@@ -57,20 +57,21 @@ function abrirCrx(crx) {
   const assinado = (c.find(([n]) => n === 10000) || [])[1];
   const crxId = assinado && (campos(assinado).find(([n]) => n === 1) || [])[1];
   if (!crxId || crxId.length !== 16) throw new Error('.crx sem identificação');
-  // Assinaturas com a chave do desenvolvedor; a que bate com o ID tem de ser a do HuntDesk e conferir com o conteúdo.
+  // Assinaturas com a chave do desenvolvedor; a que bate com o ID tem de ser a da extensão pedida e conferir com o
+  // conteúdo.
   const dados = Buffer.concat([Buffer.from('CRX3 SignedData\x00', 'latin1'), Buffer.alloc(4), assinado, zip]);
   dados.writeUInt32LE(assinado.length, 16);
   for (const [n, prova] of c) {
     if (n !== 2) continue;
     const p = campos(prova);
     const chave = (p.find(([k]) => k === 1) || [])[1], assinatura = (p.find(([k]) => k === 2) || [])[1];
-    if (!chave || !assinatura || idDaChave(chave) !== ID) continue;
+    if (!chave || !assinatura || idDaChave(chave) !== idEsperado) continue;
     if (!crypto.createHash('sha256').update(chave).digest().subarray(0, 16).equals(crxId)) continue;
     const pub = crypto.createPublicKey({ key: chave, format: 'der', type: 'spki' });
     if (!crypto.verify('sha256', dados, pub, assinatura)) throw new Error('assinatura do .crx não confere');
     return { zip, chave };
   }
-  throw new Error('o .crx não é da extensão do HuntDesk');
+  throw new Error('o .crx não é da extensão pedida');
 }
 
 // Abre o zip (sem zip64, que uma extensão pequena não usa) dentro de destino, sem deixar nada sair dela.
@@ -99,12 +100,29 @@ function abrirZip(zip, destino) {
   }
 }
 
-async function baixar() {
+async function baixar(id) {
   const url = 'https://clients2.google.com/service/update2/crx?response=redirect&acceptformat=crx3' +
-    '&prodversion=' + process.versions.chrome + '&x=' + encodeURIComponent('id=' + ID + '&uc');
+    '&prodversion=' + process.versions.chrome + '&x=' + encodeURIComponent('id=' + id + '&uc');
   const r = await net.fetch(url, { cache: 'no-store' });
   if (!r.ok) throw new Error('loja respondeu ' + r.status);
   return Buffer.from(await r.arrayBuffer());
+}
+
+// Baixa a extensão da Chrome Web Store, confere a assinatura e abre numa pasta nova dentro de base. A chave no manifest
+// faz o Electron dar à extensão o mesmo ID da loja em qualquer pasta: assim o que ela guarda continua na versão nova.
+async function baixarDaLoja(id, base) {
+  const { zip, chave } = abrirCrx(await baixar(id), id);
+  const tmp = path.join(base, 'baixando-' + id + '-' + Date.now());
+  fs.rmSync(tmp, { recursive: true, force: true });
+  abrirZip(zip, tmp);
+  // A pasta _metadata é da loja (conferência dos arquivos); com ela o Electron recusa abrir a extensão de uma pasta.
+  fs.rmSync(path.join(tmp, '_metadata'), { recursive: true, force: true });
+  const mf = JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'));
+  const versao = String(mf.version || '').replace(/[^\d.]/g, '');
+  if (!versao) { fs.rmSync(tmp, { recursive: true, force: true }); throw new Error('manifest sem versão'); }
+  mf.key = chave.toString('base64');
+  fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(mf, null, 2));
+  return { tmp, versao, mf };
 }
 
 // ---------- a extensão nas contas ----------
@@ -136,20 +154,9 @@ class Extensao {
     if (this.baixando) return this.baixando;
     this.baixando = (async () => {
       try {
-        const { zip, chave } = abrirCrx(await baixar());
-        const tmp = path.join(pastaBase(), 'baixando-' + Date.now());
-        fs.rmSync(tmp, { recursive: true, force: true });
-        abrirZip(zip, tmp);
-        // A pasta _metadata é da loja (conferência dos arquivos); com ela o Electron recusa abrir a extensão de uma pasta.
-        fs.rmSync(path.join(tmp, '_metadata'), { recursive: true, force: true });
-        const mf = JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8'));
-        const versao = String(mf.version || '').replace(/[^\d.]/g, '');
-        if (!versao) throw new Error('manifest sem versão');
+        fs.mkdirSync(pastaBase(), { recursive: true });
+        const { tmp, versao } = await baixarDaLoja(ID, pastaBase());
         if (versao === this.versao) { fs.rmSync(tmp, { recursive: true, force: true }); return; }
-        // A chave no manifest faz o Electron dar à extensão o mesmo ID da loja em qualquer pasta: assim a ligação com a
-        // conta HuntDesk, guardada pela extensão, continua na versão nova.
-        mf.key = chave.toString('base64');
-        fs.writeFileSync(path.join(tmp, 'manifest.json'), JSON.stringify(mf, null, 2));
         const pasta = path.join(pastaBase(), 'huntdesk-' + versao);
         fs.rmSync(pasta, { recursive: true, force: true });
         fs.renameSync(tmp, pasta);
@@ -173,7 +180,7 @@ class Extensao {
     try {
       for (const nome of fs.readdirSync(pastaBase())) {
         const p = path.join(pastaBase(), nome);
-        if (nome !== 'atual.json' && !ficam.includes(p)) fs.rmSync(p, { recursive: true, force: true });
+        if (nome !== 'atual.json' && nome !== 'terceiros' && !ficam.includes(p)) fs.rmSync(p, { recursive: true, force: true });
       }
     } catch (e) { /* fica para a próxima */ }
   }
@@ -213,4 +220,4 @@ class Extensao {
   }
 }
 
-module.exports = { Extensao, ID };
+module.exports = { Extensao, ID, baixarDaLoja, idDaChave };

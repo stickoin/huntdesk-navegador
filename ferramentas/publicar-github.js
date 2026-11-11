@@ -10,7 +10,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 const RAIZ = path.join(__dirname, '..');
-const FICA_AQUI = ['docs/chats', 'docs/pesquisa-mercado-2026-10.md']; // decisão do dono em 01/11
+// decisão do dono em 01/11; .claude (o comando /publicar e as configurações do Claude) desde 09/11; android (protótipo
+// do app de celular, pela metade) desde 11/11, até o dono decidir
+const FICA_AQUI = ['docs/chats', 'docs/pesquisa-mercado-2026-10.md', '.claude', 'android'];
 const RAMO = 'refs/heads/publico';
 // E-mail que o GitHub dá para cada conta, para o e-mail pessoal não aparecer no código público.
 const AUTOR = { GIT_AUTHOR_NAME: 'Mauricio', GIT_AUTHOR_EMAIL: '230467463+stickoin@users.noreply.github.com' };

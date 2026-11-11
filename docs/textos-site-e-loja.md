@@ -19,6 +19,9 @@ Quem joga é você: o navegador só organiza.
 - **Outros jogos de navegador.** Cole o endereço do jogo e a conta abre numa pasta própria daquele site.
 - **Extensão e app do HuntDesk.** A extensão do HuntDesk já vem ligada nas contas do jogo que o HuntDesk acompanha, e o
   app do HuntDesk abre dentro do navegador.
+- **Outras extensões do Chrome.** Instale as extensões que você escolher e ligue cada uma só nas contas que quiser.
+- **Leve as configurações para outro PC.** Exporte pastas, telas e contas num arquivo; os logins vão só se você marcar,
+  trancados com uma senha sua.
 - **Memória sob controle.** Cada conta mostra quanto usa de memória e de processador. Você escolhe o limite. Se uma
   conta passar dele, o navegador avisa ou recarrega só aquela página, conforme a sua escolha.
 - **Mais leve.** Nos nossos testes com 4 contas caçando no Huntera durante 2 horas, ele ficou em até 7,9 GB, enquanto
@@ -51,7 +54,9 @@ O HuntDesk é um navegador para quem joga jogos idle e de navegador com várias 
 uma com o seu login guardado. Junte as contas em pastas e monte telas com até 4 contas lado a lado; um clique troca
 de tela, e você arrasta para mudar a ordem. Funciona com outros jogos de navegador: cole o endereço do jogo e cada site
 ganha uma pasta própria. A extensão do HuntDesk já vem ligada nas contas do jogo que o HuntDesk acompanha, e o app do
-HuntDesk abre dentro do navegador.
+HuntDesk abre dentro do navegador. Permite instalar extensões do Chrome escolhidas por você, em cada conta que você
+marcar. Dá para dar nome às contas e levar as configurações para outro PC num arquivo, com os logins trancados por uma
+senha sua, se você quiser.
 
 Cada conta mostra quanto usa de memória e de processador. Você escolhe um limite. Se uma conta passar dele, o
 HuntDesk avisa ou recarrega só aquela página, do jeito que você preferir. Contas escondidas gastam menos.
@@ -65,6 +70,10 @@ O HuntDesk nunca joga por você: não clica, não digita e não repete comandos.
 - Memória e processador de cada conta
 - Aviso ou recarga quando passa do limite
 - Freio para contas escondidas
+
+**Novidades da versão 0.6.0:** instale extensões do Chrome que você escolher, cada uma só nas contas que você marcar
+(Menu ▴ → Extensões…). Exporte e importe as configurações (Configurações → Cópia das configurações), com os logins
+trancados por senha, se quiser. Renomeie as contas com dois cliques na lateral ou pelo menuzinho.
 
 **Novidades da versão 0.5.0:** agora dá para abrir contas de outros jogos de navegador. Em "+ Adicionar conta", cole o
 endereço do jogo, e cada site ganha uma pasta própria. Downloads ficam bloqueados nas contas.
@@ -96,6 +105,13 @@ uma seção "Navegador" em huntdesk.com.br/privacidade.
   navegador e a cada 6 horas. Nas contas de outros jogos ela fica desligada e nada é lido. Ela lê os dados do jogo e só
   os envia para o app do HuntDesk (no seu PC ou na sua conta HuntDesk) depois que você a
   conecta. O que a sua conta HuntDesk guarda segue a política de privacidade do HuntDesk.
+- Você pode instalar outras extensões do Chrome que escolher, pelo link da loja do Chrome ou de uma pasta do seu
+  computador. Antes de instalar, o navegador mostra o que a extensão pede. Ela só fica ligada nas contas que você marcar
+  e, nelas, pode ler tudo, inclusive o login. As da loja do Chrome são baixadas de lá e procuram versão nova ao abrir o
+  navegador e a cada 6 horas. O que cada extensão faz com os dados segue as regras de quem a fez. O navegador não
+  sugere nenhuma extensão.
+- A cópia das configurações grava um arquivo onde você escolher. Os logins só vão nele se você marcar, trancados com
+  uma senha sua. O arquivo não é enviado para nós.
 - Quando o site do app do HuntDesk pede para ligar a leitura a uma conta, o navegador pergunta antes. Se você aceitar,
   ele busca no HuntDesk a chave dessa ligação e a guarda cifrada no seu computador. Essa chave só envia as leituras.
 - O app do HuntDesk fica sabendo que está aberto dentro do navegador e qual é a versão dele. Os sites dos jogos não
