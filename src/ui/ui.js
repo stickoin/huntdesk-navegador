@@ -76,10 +76,10 @@ function desenharBaixo() {
   const at = E.alertas && E.alertas.total;
   const s = $('#saude');
   s.className = 'saude' + (p.length || at ? ' ruim' : '');
-  s.dataset.ir = p.length ? p[0].id : at ? 'medicoes' : '';
+  s.dataset.ir = p.length ? p[0].id : at ? 'memoria' : '';
   s.innerHTML = '<i></i>' + (p.length === 1 ? '1 conta precisa de atenção' : p.length ? `${p.length} contas precisam de atenção`
     : at ? 'Memória do programa passou do limite' : 'Tudo certo');
-  s.title = p.length ? `Clique para ver a ${p[0].nome}` : at ? 'Clique para ver as medições' : 'Nenhuma conta caiu nem passou do limite';
+  s.title = p.length ? `Clique para ver a ${p[0].nome}` : at ? 'Clique para ver a memória de cada conta' : 'Nenhuma conta caiu nem passou do limite';
 
   const eco = E.economico.agora;
   $('#economia').textContent = 'Economia: ' + (eco ? 'ligada' : 'desligada');
@@ -169,7 +169,7 @@ document.addEventListener('click', (ev) => {
   if (b.dataset.conta && b.dataset.faz === 'recarregar') return acao('conta:recarregar', { id: b.dataset.conta });
   if (b.id === 'saude') {
     const ir = b.dataset.ir;
-    if (ir === 'medicoes') return abrirPainel('medicoes');
+    if (ir === 'memoria') return abrirPainel('memoria');
     if (ir) return acao('conta:mostrar', { id: ir });
     return;
   }

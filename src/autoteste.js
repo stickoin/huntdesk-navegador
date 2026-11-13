@@ -33,6 +33,8 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, m
   const linhas = () => pastas().map((p) => p.telas.map((t) => t.contas.join('+')).join(' / ')).join(' | ');
   await espera(15);
   conferir('começa com as duas contas numa tela', naTela() === 'conta1,conta2', naTela());
+  // Com a memória exata, a verificação da Cloudflare (Turnstile) falha e pede de novo sem parar (12/11).
+  conferir('sem a medição exata da memória, que a Cloudflare recusa', !app.commandLine.hasSwitch('enable-precise-memory-info'));
   acao('conta:adicionar', { nome: 'Conta 3' });
   await espera(10);
   conferir('conta nova ganha uma tela só dela e aparece', naTela() === 'conta3' && linhas() === 'conta1+conta2 / conta3', linhas());
@@ -200,9 +202,43 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, m
   await ate(() => sobre().isVisible(), 5);
   await foto(janela, 'pasta', sobre().webContents);
   fechar();
-  abrir({ tipo: 'painel', painel: 'medicoes' });
+  // Janela de Configurações: uma janela só, com as seções na lateral.
+  abrir({ tipo: 'painel', painel: 'memoria' });
   await ate(() => sobre().isVisible(), 5);
-  await foto(janela, 'medicoes', sobre().webContents);
+  await espera(1);
+  const cw = sobre().webContents;
+  const naJanela = (js) => cw.executeJavaScript(js);
+  conferir('Configurações tem as seis seções na lateral', (await naJanela("[...document.querySelectorAll('.cfg-nav [data-secao]')].map((b) => b.dataset.secao).join()")) === 'geral,contas,memoria,extensoes,copia,sobre');
+  conferir('Memória mostra uma barra por conta', (await naJanela("document.querySelectorAll('.cfg-corpo .mem').length")) === estado().cfg.contas.length);
+  await naJanela("document.querySelector('#detalhes-memoria').click()");
+  conferir('"Detalhes" abre a tabela completa', (await naJanela("document.querySelectorAll('.cfg-corpo table tbody tr').length")) === estado().cfg.contas.length + 3);
+  await foto(janela, 'config-memoria', cw);
+  await naJanela("document.querySelector('[data-guarda-acao=recarregar]').click()");
+  conferir('"Recarregar sozinho" muda a guarda', await ate(() => estado().cfg.guarda.acao === 'recarregar', 5));
+  await naJanela("document.querySelector('[data-guarda-acao=avisar]').click()");
+  await ate(() => estado().cfg.guarda.acao === 'avisar', 5);
+  await naJanela("document.querySelector('.cfg-nav [data-secao=geral]').click()");
+  const abriaAntes = estado().cfg.abrirAoIniciar;
+  await naJanela("document.querySelector('[data-chave=abrir-ao-iniciar]').click()");
+  conferir('a chave "Abrir as contas sozinho" troca a opção', await ate(() => estado().cfg.abrirAoIniciar === !abriaAntes, 5));
+  await naJanela("document.querySelector('[data-chave=abrir-ao-iniciar]').click()");
+  await ate(() => estado().cfg.abrirAoIniciar === abriaAntes, 5);
+  await naJanela("document.querySelector('[data-saiba=abrir]').click()");
+  conferir('"saiba mais" mostra a explicação longa', (await naJanela("(document.querySelector('.cfg-corpo .longo') || {}).textContent || ''")).includes('quem faz o login'));
+  await foto(janela, 'config-geral', cw);
+  await naJanela("document.querySelector('.cfg-nav [data-secao=contas]').click()");
+  const primeira = estado().cfg.contas[0];
+  await naJanela(`document.querySelector('[data-linha="${primeira.id}"] [data-faz=editar]').click()`);
+  await naJanela(`(() => { const i = document.querySelector('[data-linha="${primeira.id}"] [data-campo=nome]'); i.value = 'Principal'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+  conferir('Contas: "Editar" troca o nome', await ate(() => estado().cfg.contas[0].nome === 'Principal', 5));
+  acao('conta:renomear', { id: primeira.id, nome: primeira.nome });
+  await naJanela(`document.querySelector('[data-linha="${primeira.id}"] .chave').click()`);
+  conferir('Contas: a chave desliga a conta', await ate(() => !estado().vivas.has(primeira.id), 5));
+  await naJanela(`document.querySelector('[data-linha="${primeira.id}"] .chave').click()`);
+  conferir('Contas: a chave liga de novo', await ate(() => estado().vivas.has(primeira.id), 5));
+  await foto(janela, 'config-contas', cw);
+  await naJanela("document.querySelector('.cfg-nav [data-secao=sobre]').click()");
+  conferir('Sobre mostra a versão', (await naJanela("document.querySelector('.cfg-corpo').innerText")).includes(app.getVersion()));
   fechar();
   conferir('fechar esconde a janelinha', !sobre().isVisible());
   v1().view.webContents.forcefullyCrashRenderer();
@@ -305,9 +341,11 @@ async function guarda({ acao, estado, conferir, janela, abrir, fechar }) {
   conferir('no modo avisar, não recarrega', alertas().conta1 && !alertas().conta1.recarregada);
   await espera(1);
   await foto(janela, 'aviso');
-  abrir({ tipo: 'painel', painel: 'config' });
+  abrir({ tipo: 'painel', painel: 'memoria' });
   await espera(1.5);
   await foto(janela, 'configuracoes', estado().sobre.webContents);
+  conferir('a seção Memória marca quem passou do limite', (await estado().sobre.webContents.executeJavaScript("document.querySelectorAll('.cfg-corpo .selo.ruim').length")) >= 2
+    && await estado().sobre.webContents.executeJavaScript("!!document.querySelector('.cfg-nav .ponto')"));
   fechar();
   acao('guarda:config', { acao: 'recarregar' });
   acao('guarda:dispensar', { id: 'conta1' });
@@ -510,7 +548,7 @@ async function copia({ acao, estado, conferir, janela, abrir, fechar, respostasT
     && !caminhoSeguro(cofre, 'Network/Cookies') && !caminhoSeguro(cofre, 'C:/x') && !!caminhoSeguro(cofre, 'Local Storage/leveldb/000003.log'));
 
   // Pela janela de Configurações, como o jogador faz.
-  abrir({ tipo: 'painel', painel: 'config' });
+  abrir({ tipo: 'painel', painel: 'copia' });
   await ate(() => estado().sobre.isVisible(), 5);
   const sw = estado().sobre.webContents;
   respostasTeste.arquivoCopia = arq('pela-tela');

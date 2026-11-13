@@ -20,7 +20,7 @@
   e, nelas, pode ler tudo, inclusive o login. As da loja do Chrome são baixadas de lá e procuram versão nova ao abrir o
   navegador e a cada 6 horas. O que cada extensão faz com os dados segue as regras de quem a fez. O navegador não
   sugere nenhuma extensão.
-- A cópia das configurações (Configurações → Cópia das configurações) grava um arquivo onde você escolher. Os logins
+- A cópia das configurações (Menu ▴ → Configurações → Cópia) grava um arquivo onde você escolher. Os logins
   só vão nele se você marcar, trancados com uma senha sua. O arquivo não é enviado para nós.
 - Quando o site do app do HuntDesk pede para ligar a leitura a uma conta, o navegador pergunta antes. Se você aceitar,
   ele busca no HuntDesk a chave dessa ligação e a guarda cifrada no seu computador. Essa chave só envia as leituras.

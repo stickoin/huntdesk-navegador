@@ -14,10 +14,13 @@ Um navegador feito para quem joga jogos idle e de navegador com várias contas a
   do navegador.
 - **Outras extensões do Chrome:** em **Menu ▴ → Extensões…**, cole o link da extensão na loja do Chrome ou escolha
   uma pasta. Antes de instalar aparece o que ela pede. Cada extensão fica ligada só nas contas que você marcar.
-- **Cópia das configurações:** em **Configurações**, exporte pastas, telas, contas e opções num arquivo e importe em
+- **Cópia das configurações:** em **Menu ▴ → Configurações → Cópia**, exporte pastas, telas, contas e opções num arquivo e importe em
   outro PC. Os logins vão só se você marcar, trancados com uma senha sua.
 - **Nome das contas:** dois cliques na conta, na lateral, ou o menuzinho da conta, para renomear.
-- **Controle de memória:** mostra quanto cada conta gasta de memória e de processador. Se uma conta passar do limite
+- **Configurações numa janela só:** **Menu ▴ → Configurações** tem as seções Geral, Contas, Memória, Extensões, Cópia
+  e Sobre.
+- **Controle de memória:** mostra quanto cada conta gasta de memória e de processador (em **Menu ▴ → Configurações →
+  Memória**). Se uma conta passar do limite
   que você escolheu, o programa **avisa** ou **recarrega só aquela página**, conforme a sua escolha.
 - **Freio:** conta escondida ou fora da tela gasta menos.
 
@@ -43,7 +46,7 @@ se você apertar **Reiniciar agora**.
 - Logins e configurações ficam só no seu computador, em `%APPDATA%\HuntDesk Navegador`. As medições de memória
   aparecem na tela, mas não são gravadas em arquivo. Se a página de uma conta cair, o programa anota nessa pasta só a
   data, o número da conta, o motivo e a memória daquele momento (arquivo `quedas.log`, com as últimas 50 quedas).
-- Desinstalar o programa **não apaga** essa pasta. Em **Configurações > Sobre** há um botão para abri-la.
+- Desinstalar o programa **não apaga** essa pasta. Em **Menu ▴ → Configurações → Sobre** há um botão para abri-la.
 - O programa se conecta à internet só para:
   - ver se há versão nova, na página de versões do projeto no GitHub;
   - baixar a extensão do HuntDesk e as outras extensões que você instalou pela loja do Chrome, ao abrir e a cada 6

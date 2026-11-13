@@ -184,14 +184,9 @@ tr.soma td { color: var(--muted); }
 .linha-form { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 .linha-form input { width: 160px; }
 .linha-form input.largo { flex: 1; min-width: 160px; width: auto; }
-.linha-form.nova { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .linha-botoes { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
-.config h3 { margin: 4px 0 8px; font-size: 13px; color: var(--gold); font-weight: 600; }
-.config h3:not(:first-child) { margin-top: 14px; }
-.config input[type="number"] { width: 100px; }
 .opcao { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 6px 4px; }
 .opcao input { margin-top: 3px; }
-.config .linha-form input[type="password"] { width: 180px; }
 .caixa-copia { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
 .caixa-copia p { margin: 0 0 8px; }
 #copia-aviso { margin: 8px 0 0; white-space: normal; }
@@ -208,10 +203,79 @@ tr.soma td { color: var(--muted); }
 .boas-vindas .botoes-fim button { padding: 7px 16px; font-size: 14px; }
 
 /* painel das extensões de terceiros */
-.ext-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin-top: 10px; }
-.ext-item p { margin: 0 0 6px; white-space: normal; }
-.ext-contas { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin: 0 0 6px; }
-.ext-contas label { display: inline-flex; gap: 4px; align-items: center; }
+.ext-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-top: 10px; }
+.ext-item p { margin: 8px 0 0; white-space: normal; }
+.ext-item .topo { display: flex; align-items: center; gap: 8px; }
+.ext-item .topo .txt { flex: 1; min-width: 0; }
+.ext-item .topo .txt b, .ext-item .topo .txt small { display: block; }
+.cfg-corpo .ext-item button:not(.forte, .ficha, .todas) { background: var(--bg-2); }
 .ext-frases { margin: 0 0 8px; padding-left: 18px; white-space: normal; }
 #ext-aviso { margin: 8px 0 0; white-space: normal; }
 #ext-instalar:disabled { opacity: .45; }
+
+/* ---------- janela de Configurações: as seções na lateral, a seção aberta ao lado (ela rola; a lateral fica parada) ---------- */
+#janela-painel { padding: 0; height: 100vh; overflow: hidden; display: grid; grid-template-columns: 178px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+#janela-painel .cab-janela { grid-column: 1 / -1; margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.cfg-nav { display: flex; flex-direction: column; gap: 2px; padding: 12px 10px; border-right: 1px solid var(--border); background: var(--bg); overflow-y: auto; }
+.cfg-nav button { display: flex; align-items: center; gap: 9px; background: transparent; border: 1px solid transparent; border-radius: 9px; padding: 7px 10px;
+  color: var(--muted); font-weight: 500; text-align: left; }
+.cfg-nav button svg { width: 16px; height: 16px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.cfg-nav button:hover { color: var(--text); background: var(--card); }
+.cfg-nav button.aqui { color: var(--gold); background: var(--gold-soft); border-color: var(--gold-borda); }
+.cfg-nav .ponto { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-left: auto; }
+.cfg-corpo { overflow-y: auto; padding: 16px 18px 20px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.cfg-corpo > h1 { margin: 0 0 2px; font-size: 17px; font-weight: 600; }
+.cfg-corpo > .sub { margin: 0 0 14px; color: var(--muted); }
+.cfg-corpo .grupo { margin-bottom: 18px; }
+.cfg-corpo .grupo > h3 { margin: 0 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.cfg-corpo button { padding: 4px 11px; }
+.cfg-corpo button:not(.forte, .chave, .saiba, .ficha, .todas) { background: var(--card); }
+.cfg-corpo input { background: var(--bg); padding: 4px 9px; min-width: 0; }
+.cfg-corpo input.num { width: 88px; text-align: right; }
+.cfg-corpo input.largo { flex: 1; }
+.cfg-corpo .linha { display: flex; align-items: center; gap: 12px; padding: 10px 0; min-height: 44px; border-bottom: 1px solid var(--border); }
+.cfg-corpo .grupo > .linha:last-child { border-bottom: none; }
+.cfg-corpo .txt { flex: 1; min-width: 0; }
+.cfg-corpo .txt b { display: block; font-weight: 600; }
+.cfg-corpo .txt small { color: var(--muted); font-size: 12px; }
+.cfg-corpo button.saiba, .cfg-corpo button.todas { background: none; border: none; padding: 0; color: var(--gold); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+.cfg-corpo .longo { margin: 8px 0 10px; padding: 8px 10px; border-radius: 9px; background: var(--card-2); color: var(--muted); font-size: 12px; }
+.cfg-corpo .longo b { color: var(--text); }
+.cfg-corpo button.chave { width: 38px; height: 22px; border-radius: 11px; border: 1px solid var(--border); background: var(--bg); position: relative; flex: none; padding: 0; }
+.cfg-corpo button.chave::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .12s; }
+.cfg-corpo button.chave.on { background: var(--gold-soft); border-color: var(--gold-borda); }
+.cfg-corpo button.chave.on::after { transform: translateX(16px); background: var(--gold); }
+.cfg-corpo .escolha { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; flex: none; }
+.cfg-corpo .escolha button { background: var(--bg); border: none; border-radius: 0; padding: 5px 11px; color: var(--muted); }
+.cfg-corpo .escolha button + button { border-left: 1px solid var(--border); }
+.cfg-corpo .escolha button.aqui { background: var(--gold-soft); color: var(--gold); font-weight: 600; }
+.cfg-corpo .botoes { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0; }
+.cfg-corpo .botoes .cresce { flex: 1; }
+.cfg-corpo .botoes .cresce b { color: var(--text); }
+.cfg-corpo .abre { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 8px 0 10px; }
+.cfg-corpo .abre input[type="password"] { flex: 1; }
+.cfg-corpo button.confirmar { border-color: var(--danger); color: var(--danger); white-space: normal; text-align: left; }
+.cfg-corpo .aviso-caixa { margin: 8px 0 10px; }
+.cfg-corpo .ini { width: 28px; height: 28px; font-size: 11px; }
+
+/* memória: uma barra por conta; o risco marca o limite (a barra inteira vale 125% dele) */
+.mem { display: grid; grid-template-columns: 28px minmax(70px, 130px) 1fr 74px 88px; gap: 10px; align-items: center; padding: 7px 0; }
+.mem .nome { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.trilho { position: relative; height: 10px; border-radius: 5px; background: var(--bg); border: 1px solid var(--border); }
+.trilho i { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 5px; background: var(--ok); }
+.trilho i.atencao { background: var(--warn); } .trilho i.ruim { background: var(--danger); }
+.trilho u { position: absolute; left: 80%; top: -4px; bottom: -4px; width: 2px; background: var(--muted); border-radius: 1px; }
+.mem .mb { text-align: right; font-variant-numeric: tabular-nums; }
+.selo { font-size: 11px; border-radius: 20px; padding: 1px 8px; border: 1px solid currentColor; text-align: center; white-space: nowrap; }
+.selo.off { color: var(--muted); }
+.legenda { display: flex; gap: 14px; flex-wrap: wrap; color: var(--muted); font-size: 12px; padding: 4px 0 2px; }
+.legenda i { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; background: var(--ok); }
+.legenda i.atencao { background: var(--warn); } .legenda i.ruim { background: var(--danger); }
+.legenda u { display: inline-block; width: 2px; height: 11px; background: var(--muted); margin-right: 6px; vertical-align: -1px; }
+.cfg-corpo .tabela { overflow-x: auto; margin: 6px 0 4px; }
+
+/* extensões: as contas de cada uma em fichas (dourada = ligada nela) */
+.fichas { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 0; }
+.fichas .de { color: var(--muted); font-size: 12px; }
+.cfg-corpo button.ficha { background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 2px 10px; color: var(--muted); font-size: 12px; }
+.cfg-corpo button.ficha.on { background: var(--gold-soft); border-color: var(--gold-borda); color: var(--gold); }

@@ -24,14 +24,16 @@ const TESTE = AUTOTESTE || ARGS.includes('--teste');
 const PAGINA_TESTE = path.join(__dirname, 'teste', 'pagina-teste.html');
 const FAIXA = 24; // faixa com o nome e os botões em cima de cada conta (só com mais de uma conta na tela)
 const VAO = 4; // espaço entre as contas
-const PAINEIS = ['medicoes', 'contas', 'config', 'extensoes'];
+const PAINEIS = ['geral', 'contas', 'memoria', 'extensoes', 'copia', 'sobre']; // seções da janela de Configurações
 
 // O Electron põe o nome do programa no que toda página mostra aos sites; o site do jogo não precisa ver (decisão do
 // dono, 07/11). Tem de ser aqui, no valor geral: a janela que o jogo abre (a de login, por exemplo) não usa o do cofre da
 // conta. O "Electron" fica: o programa não finge ser um Chrome comum. A vista do app acrescenta a marca dela (MARCA_APP).
 app.userAgentFallback = app.userAgentFallback.replace(/ ?HuntDesk\/\S+/, '');
-// O Chrome arredonda a memória do JavaScript que a página informa; com esta opção vem o número exato.
-app.commandLine.appendSwitch('enable-precise-memory-info');
+// O Chrome arredonda a memória do JavaScript que a página informa. A opção que dá o número exato fica só para os
+// experimentos pela linha de comando (--memoria-precisa): com ela, a verificação de humano da Cloudflare (Turnstile)
+// falha e pede de novo sem parar, como num programa automatizado (visto no Grand Line em 12/11).
+if (ARGS.includes('--memoria-precisa')) app.commandLine.appendSwitch('enable-precise-memory-info');
 if (AUTOTESTE) app.setPath('userData', path.join(app.getPath('temp'), 'huntdesk-navegador-autoteste-' + Date.now()));
 // Logins e configuração ficam em %APPDATA%\HuntDesk Navegador (o nome do programa é só "HuntDesk", mas essa pasta é
 // separada da do HuntDesk).
@@ -302,7 +304,7 @@ function posicionarSobre() {
   const c = win.getContentBounds();
   const a = area || { x: 0, y: 0, width: c.width, height: c.height };
   const menu = sobreAberto.tipo !== 'painel';
-  const largura = Math.min(menu ? 300 : sobreAberto.painel === 'medicoes' ? 980 : 620, c.width - 20);
+  const largura = Math.min(menu ? 300 : 780, c.width - 20);
   const altura = Math.min(alturaSobre || 400, c.height - 20);
   // O menuzinho da tela ou da pasta abre ao lado da linha clicada; os painéis, no meio do espaço das contas. Nunca
   // saem da janela.
@@ -937,6 +939,8 @@ function enviarEstado() {
     visual: cfg.visual,
     faixas: celulas.length > 1,
     app: mostrandoApp,
+    // A extensão do HuntDesk: se existe aqui (fora dos testes) e se já está ligada ao app. A chave nunca vai para a tela.
+    leitura: { disponivel: !!extensao, ligada: !!(cfg.huntdesk && (cfg.huntdesk.cloud || cfg.huntdesk.pc)) },
     extensoes: cfg.extensoes.map((x) => ({ ...x, telinha: !!(terceiros && telinhaDe(x)) })),
     cheia: win.isFullScreen(),
     aberto: sobreAberto,
@@ -1137,14 +1141,16 @@ ipcMain.on('tamanho', (e, t) => {
 // Menu ▴ da barra de baixo: o menu do próprio Windows, que aparece por cima das contas.
 ipcMain.on('menu', (e) => {
   if (!daBarra(e)) return;
+  // Contas, memória, extensões, cópia e o resto ficam numa janela só (Configurações), cada um numa seção.
   const item = (label, painel) => ({ label, click: () => abrirSobre({ tipo: 'painel', painel }) });
-  Menu.buildFromTemplate([item('Medições', 'medicoes'), item('Contas', 'contas'), item('Configurações', 'config'),
+  Menu.buildFromTemplate([item('Configurações', 'geral'),
     { type: 'separator' }, { label: 'Abrir o app do HuntDesk', click: () => acao('app:mostrar') },
     { label: 'Extensão HuntDesk…', enabled: !!extensao, click: abrirHuntDesk }, item('Extensões…', 'extensoes'),
     { type: 'separator' }, { label: 'HuntDesk ' + app.getVersion(), enabled: false }]).popup({ window: win });
 });
 ipcMain.on('abrir-medicoes', (e) => { if (daBarra(e) && medidor.arquivo) shell.openPath(medidor.pasta); });
 ipcMain.on('abrir-dados', (e) => { if (daBarra(e)) shell.openPath(app.getPath('userData')); });
+ipcMain.on('abrir-huntdesk', (e) => { if (daBarra(e) && extensao) abrirHuntDesk(); }); // o mesmo do Menu ▴ → Extensão HuntDesk…
 ipcMain.handle('extensoes', (e, tipo, dados) => (daBarra(e) ? fazerExtensoes(tipo, dados) : { erro: 'origem' }));
 
 if (!app.requestSingleInstanceLock()) {

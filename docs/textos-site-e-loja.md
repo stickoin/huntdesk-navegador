@@ -71,6 +71,10 @@ O HuntDesk nunca joga por você: não clica, não digita e não repete comandos.
 - Aviso ou recarga quando passa do limite
 - Freio para contas escondidas
 
+**Novidades da versão 0.7.0:** as configurações ficaram numa janela só (Menu ▴ → Configurações), com seis seções:
+Geral, Contas, Memória, Extensões, Cópia e Sobre. A verificação "sou humano" da Cloudflare volta a funcionar nos sites
+que a usam.
+
 **Novidades da versão 0.6.0:** instale extensões do Chrome que você escolher, cada uma só nas contas que você marcar
 (Menu ▴ → Extensões…). Exporte e importe as configurações (Configurações → Cópia das configurações), com os logins
 trancados por senha, se quiser. Renomeie as contas com dois cliques na lateral ou pelo menuzinho.

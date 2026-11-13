@@ -1,7 +1,7 @@
 {
   "name": "huntdesk-navegador",
   "productName": "HuntDesk",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Navegador do HuntDesk para jogos idle: várias contas lado a lado, cada uma com o login separado, com controle de memória. Só organiza e mede; nunca joga.",
   "main": "src/main.js",
