@@ -71,6 +71,10 @@ O HuntDesk nunca joga por você: não clica, não digita e não repete comandos.
 - Aviso ou recarga quando passa do limite
 - Freio para contas escondidas
 
+**Novidades da versão 0.8.0:** atenção: o ✕ agora esconde a janela e as contas continuam abertas; para fechar de vez,
+use "Sair" no ícone ao lado do relógio (dá para voltar ao jeito antigo em Configurações → Geral). Zoom por conta (Ctrl +
+e Ctrl −). Aviso quando uma conta cai, pede login ou volta para a escolha de personagem.
+
 **Novidades da versão 0.7.0:** as configurações ficaram numa janela só (Menu ▴ → Configurações), com seis seções:
 Geral, Contas, Memória, Extensões, Cópia e Sobre. A verificação "sou humano" da Cloudflare volta a funcionar nos sites
 que a usam.

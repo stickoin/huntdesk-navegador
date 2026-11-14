@@ -26,7 +26,7 @@ async function ate(cond, prazoSeg) {
   return cond();
 }
 
-async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, marcaApp }) {
+async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, marcaApp, respostasTeste }) {
   const naTela = () => estado().celulas.map((c) => c.id).join(',');
   const pastas = () => estado().cfg.pastas;
   const telaDe = (id) => pastas().flatMap((p) => p.telas).find((t) => t.contas.includes(id)).id;
@@ -241,14 +241,69 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, m
   conferir('Sobre mostra a versão', (await naJanela("document.querySelector('.cfg-corpo').innerText")).includes(app.getVersion()));
   fechar();
   conferir('fechar esconde a janelinha', !sobre().isVisible());
+  // Zoom por conta: Ctrl + e Ctrl − dentro da conta, e os botões do ⋯ da tela. A outra conta não muda.
+  const zoomDe = (id) => Math.round(estado().vivas.get(id).view.webContents.getZoomFactor() * 100);
+  const tecla = (keyCode) => v1().view.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers: ['control'] });
+  const outra = estado().cfg.contas.find((c) => c.id !== 'conta1' && estado().vivas.has(c.id)).id;
+  tecla('Plus');
+  conferir('Ctrl + aumenta o zoom só daquela conta', await ate(() => estado().cfg.contas[0].zoom === 110 && zoomDe('conta1') === 110, 5) && zoomDe(outra) === 100, `${zoomDe('conta1')} / ${zoomDe(outra)}`);
+  tecla('-'); tecla('-');
+  conferir('Ctrl − diminui', await ate(() => estado().cfg.contas[0].zoom === 90 && zoomDe('conta1') === 90, 5), String(zoomDe('conta1')));
+  tecla('0');
+  conferir('Ctrl 0 volta a 100%', await ate(() => estado().cfg.contas[0].zoom === 100 && zoomDe('conta1') === 100, 5), String(zoomDe('conta1')));
+  abrir({ tipo: 'tela', tela: telaDe('conta1'), x: 220, y: 60 });
+  await ate(() => sobre().isVisible(), 5);
+  const noMenu = (js) => sobre().webContents.executeJavaScript(js);
+  await noMenu("document.querySelector('[data-conta=conta1] [data-faz=zoom-mais]').click()");
+  await ate(() => estado().cfg.contas[0].zoom === 110, 5);
+  await noMenu("document.querySelector('[data-conta=conta1] [data-faz=zoom-mais]').click()");
+  conferir('o + do ⋯ da tela aumenta o zoom', await ate(() => estado().cfg.contas[0].zoom === 125 && zoomDe('conta1') === 125, 5), String(zoomDe('conta1')));
+  conferir('o ⋯ mostra o zoom da conta', (await espera(1), await noMenu("document.querySelector('[data-conta=conta1] [data-faz=zoom-normal]').textContent")) === '125%');
+  acao('conta:recarregar', { id: 'conta1' });
+  await espera(3);
+  conferir('o zoom continua depois de recarregar', await ate(() => v1().estado === 'ok' && zoomDe('conta1') === 125, 15), String(zoomDe('conta1')));
+  await foto(janela, 'zoom', sobre().webContents);
+  await noMenu("document.querySelector('[data-conta=conta1] [data-faz=zoom-normal]').click()");
+  conferir('clicar no número volta a 100%', await ate(() => estado().cfg.contas[0].zoom === 100 && zoomDe('conta1') === 100, 5), String(zoomDe('conta1')));
+  acao('conta:zoom', { id: 'conta1', zoom: 137 });
+  conferir('zoom fora da lista é recusado', estado().cfg.contas[0].zoom === 100);
+  fechar();
+  respostasTeste.avisos.length = 0;
   v1().view.webContents.forcefullyCrashRenderer();
   conferir('conta que caiu sai da frente', await ate(() => v1().estado === 'caiu', 10) && !v1().view.getVisible(), v1().estado);
   conferir('a queda guarda o motivo', !!v1().queda, v1().queda);
+  conferir('a queda avisa no Windows', respostasTeste.avisos.some((t) => /caiu/.test(t)), respostasTeste.avisos.join(' | '));
   const quedas = fs.readFileSync(path.join(app.getPath('userData'), 'quedas.log'), 'utf8');
   conferir('registro da queda sem nome nem endereço', /\| conta1 \|/.test(quedas) && !/Conta 1|https?:|pagina-teste/.test(quedas), quedas.trim());
   await foto(janela, 'caiu');
   acao('conta:recarregar', { id: 'conta1' });
   conferir('recarregar traz a conta de volta', await ate(() => v1().estado === 'ok', 20) && v1().view.getVisible(), v1().estado);
+  // Pediu login: só pelo endereço da página (o teste finge a troca de endereço que o Huntera faz, sem internet).
+  const vaiPara = (url) => v1().view.webContents.emit('did-navigate-in-page', {}, url, true);
+  respostasTeste.avisos.length = 0;
+  vaiPara('https://huntera.com.br/login');
+  conferir('abrindo já no login: marca, sem aviso do Windows', v1().pede === 'login' && !respostasTeste.avisos.length, respostasTeste.avisos.join(' | '));
+  vaiPara('https://huntera.com.br/game');
+  conferir('voltar ao jogo tira a marca', v1().pede === null);
+  vaiPara('https://huntera.com.br/login');
+  conferir('do jogo para o login: marca e avisa no Windows', v1().pede === 'login' && respostasTeste.avisos.some((t) => /pediu login/.test(t)), respostasTeste.avisos.join(' | '));
+  await espera(1);
+  const lat = await janela.webContents.executeJavaScript("[document.querySelector('#saude').textContent, document.querySelector('[data-tela] .ini.atencao') ? 'marca' : 'sem marca', document.querySelector('#lista').textContent.includes('pediu login')].join('|')");
+  conferir('a lateral e a barra mostram quem pediu login', /precisa(m)? de atenção/.test(lat) && lat.includes('marca|true'), lat);
+  await foto(janela, 'pediu-login');
+  vaiPara('https://huntera.com.br/game');
+  vaiPara('https://huntera.com.br/characters');
+  conferir('do jogo para a escolha de personagem também avisa', v1().pede === 'personagem' && respostasTeste.avisos.some((t) => /escolha de personagem/.test(t)));
+  vaiPara('https://huntera.com.br/game');
+  acao('guarda:config', { notificacoes: false });
+  respostasTeste.avisos.length = 0;
+  vaiPara('https://huntera.com.br/login');
+  conferir('com os avisos do Windows desligados, só a marca', v1().pede === 'login' && !respostasTeste.avisos.length);
+  acao('guarda:config', { notificacoes: true });
+  vaiPara('https://outro-jogo.com/conta/entrar?volta=1');
+  conferir('em outro jogo, um endereço de "entrar" também conta', v1().pede === 'login');
+  vaiPara('https://outro-jogo.com/play');
+  conferir('e o resto do site não', v1().pede === null);
   // Remover pelo menuzinho da tela: o primeiro clique só pede confirmação, o segundo remove.
   abrir({ tipo: 'tela', tela: telaDe('conta1'), x: 220, y: 60 });
   await ate(() => sobre().isVisible(), 5);
@@ -313,6 +368,29 @@ async function telas({ acao, medidor, estado, conferir, janela, abrir, fechar, m
   const sigla = await janela.webContents.executeJavaScript(`document.querySelector('[data-tela="${telaNova}"] .ini').textContent`);
   conferir('a sigla acompanha o nome', sigla === 'TR', sigla);
   fechar();
+
+  // Ícone ao lado do relógio: ligado de fábrica; o ✕ esconde a janela e as contas continuam abertas.
+  conferir('o ícone ao lado do relógio vem ligado', estado().cfg.bandeja === true && !!estado().bandeja);
+  abrir({ tipo: 'painel', painel: 'geral' });
+  await ate(() => sobre().isVisible(), 5);
+  await espera(1);
+  await sobre().webContents.executeJavaScript("document.querySelector('[data-chave=bandeja]').click()");
+  conferir('a chave em Geral desliga o ícone', await ate(() => estado().cfg.bandeja === false && !estado().bandeja, 5));
+  await espera(1);
+  await sobre().webContents.executeJavaScript("document.querySelector('[data-chave=bandeja]').click()");
+  conferir('e liga de novo', await ate(() => estado().cfg.bandeja === true && !!estado().bandeja, 5));
+  fechar();
+  const ligadas = estado().vivas.size;
+  respostasTeste.avisos.length = 0;
+  janela.close();
+  await espera(2);
+  conferir('o ✕ esconde a janela sem fechar as contas', !janela.isDestroyed() && !janela.isVisible() && estado().vivas.size === ligadas, `${estado().vivas.size} de ${ligadas}`);
+  conferir('na primeira vez, avisa onde o programa ficou', respostasTeste.avisos.some((t) => /continua aberto/.test(t)), respostasTeste.avisos.join(' | '));
+  const itens = estado().menuBandeja.items.map((i) => i.label).filter(Boolean);
+  conferir('o menu do ícone tem Abrir e Sair', itens.join() === 'Abrir o HuntDesk,Sair', itens.join());
+  estado().menuBandeja.items[0].click();
+  conferir('"Abrir o HuntDesk" traz a janela de volta', await ate(() => janela.isVisible(), 5));
+  // Fica ligado: o fim do teste fecha o programa como o "Sair" faz (se o ✕ segurasse o fechamento, o teste não terminaria).
 }
 
 // Foto da barra e das faixas do programa (as páginas das contas não aparecem nela), ou da janelinha
@@ -491,6 +569,7 @@ async function copia({ acao, estado, conferir, janela, abrir, fechar, respostasT
     httpOnly: true, secure: true, expirationDate: Math.round(Date.now() / 1000) + 86400 });
   await estado().vivas.get('conta1').view.webContents.executeJavaScript("localStorage.setItem('lembrar', 'guardado-no-site')");
   acao('conta:cor', { id: 'conta1', cor: 3 });
+  acao('conta:zoom', { id: 'conta1', zoom: 125 });
   acao('guarda:config', { limiteMb: 3000 });
   const EXT = 'abcdefghijklmnopabcdefghijklmnop';
   cfg().extensoes.push({ id: EXT, nome: 'Extensão da cópia', versao: '1.0', origem: 'loja', contas: ['conta1'], pendente: true });
@@ -524,6 +603,7 @@ async function copia({ acao, estado, conferir, janela, abrir, fechar, respostasT
   const nova = cfg().contas.find((c) => c.nome === 'Conta 1');
   conferir('importar soma só o que falta, com número novo', r.ok && r.novas === 1 && r.iguais === 1 && r.comLogin === 1 && nova
     && nova.id === 'conta3' && nova.cor === 3, JSON.stringify(r));
+  conferir('o zoom da conta vai e volta na cópia', nova && nova.zoom === 125, nova && String(nova.zoom));
   conferir('as opções do arquivo passam a valer', cfg().guarda.limiteMb === 3000, String(cfg().guarda.limiteMb));
   const extVolta = cfg().extensoes.find((x) => x.id === EXT);
   conferir('a extensão volta presa à conta importada, ainda por instalar', extVolta && extVolta.pendente && extVolta.contas.join() === 'conta3'
@@ -586,6 +666,16 @@ async function extensoes({ acao, estado, conferir, janela, abrir, fechar, respos
   const marcada = async (wc) => { await wc.loadURL(pagina); await espera(0.5); return wc.executeJavaScript('document.documentElement.dataset.extensaoTeste || ""'); };
   const contaWc = (id) => estado().vivas.get(id).view.webContents;
   const tem = (part, id) => !!session.fromPartition(part).extensions.getExtension(id);
+  // Um clique em outra janela ou o Windows trocando o foco fecha a janelinha (como faz com o jogador): o teste a abre de
+  // novo antes de mexer nela, para não depender de ninguém estar usando o PC.
+  const sw = estado().sobre.webContents;
+  const garantirPainel = async () => {
+    if (estado().sobre.isVisible()) return;
+    abrir({ tipo: 'painel', painel: 'extensoes' });
+    await ate(() => estado().sobre.isVisible(), 5);
+    await espera(1);
+  };
+  const noPainel = async (codigo) => { await garantirPainel(); return sw.executeJavaScript(codigo); };
 
   let r = await fazer('preparar', { link: 'https://exemplo.com/nada' });
   conferir('link que não é da loja é recusado', r.erro && /link da Chrome Web Store/.test(r.texto), JSON.stringify(r));
@@ -607,19 +697,18 @@ async function extensoes({ acao, estado, conferir, janela, abrir, fechar, respos
   acao('app:mostrar');
   await ate(() => estado().app, 5);
   acao('tela:ver', { pasta: 'pasta1', tela: 'todas' });
-  abrir({ tipo: 'painel', painel: 'extensoes' });
-  await ate(() => estado().sobre.isVisible(), 5);
-  await espera(1);
-  const sw = estado().sobre.webContents;
-  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-conta="conta1"]').click()`);
+  await garantirPainel();
+  await noPainel(`document.querySelector('[data-ext="${id}"] [data-ext-conta="conta1"]').click()`);
   await ate(() => cfg().extensoes[0].contas.join() === 'conta1', 5);
   conferir('marcar a conta no painel liga só nela', tem('persist:conta1', id) && !tem('persist:conta2', id), cfg().extensoes[0].contas.join());
   conferir('nunca no app do HuntDesk', !session.fromPartition('persist:app-huntdesk').extensions.getAllExtensions().length);
   conferir('a página da conta 1 recebe a extensão', (await marcada(contaWc('conta1'))) === 'ligada');
   conferir('a da conta 2 não', (await marcada(contaWc('conta2'))) === '');
+  // A janelinha fechada no meio (um clique fora) não perde o aviso: ao abrir de novo, ele continua lá.
+  fechar();
   let textoPainel = '';
   const painelCerto = async () => {
-    textoPainel = await sw.executeJavaScript("document.querySelector('#janela-painel').innerText");
+    textoPainel = await noPainel("document.querySelector('#janela-painel').innerText");
     return /Extensão de teste do HuntDesk/.test(textoPainel) && /Conta 1/.test(textoPainel) && /F5/.test(textoPainel) && estado().sobre.isVisible();
   };
   let mostra = false;
@@ -630,16 +719,15 @@ async function extensoes({ acao, estado, conferir, janela, abrir, fechar, respos
   const antes = BrowserWindow.getAllWindows().length;
   r = await fazer('telinha', { id });
   await espera(1);
-  const telinha = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().startsWith(`chrome-extension://${id}/`));
+  // Uma janela fechando no meio (a de outro programa de teste, por exemplo) não conta.
+  const telinha = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL().startsWith(`chrome-extension://${id}/`));
   conferir('abrir a tela dela', r.ok && telinha && BrowserWindow.getAllWindows().length === antes + 1, JSON.stringify(r));
   if (telinha) telinha.destroy();
   // Fechar a tela dela devolve o foco à janela principal, que fecha a janelinha (como qualquer clique fora): abre de novo.
   await espera(0.5);
-  abrir({ tipo: 'painel', painel: 'extensoes' });
-  await ate(() => estado().sobre.isVisible(), 5);
-  await espera(1);
+  await garantirPainel();
   // "todas desta pasta", depois desmarcar a conta 1
-  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-todas]').click()`);
+  await noPainel(`document.querySelector('[data-ext="${id}"] [data-ext-todas]').click()`);
   conferir('"todas desta pasta" liga nas duas', await ate(() => tem('persist:conta2', id) && cfg().extensoes[0].contas.length === 2, 5));
   r = await fazer('contas', { id, contas: ['conta2'] });
   conferir('desmarcar tira da conta e pede F5', r.ok && r.recarregar === 1 && !tem('persist:conta1', id) && tem('persist:conta2', id), JSON.stringify(r));
@@ -650,23 +738,23 @@ async function extensoes({ acao, estado, conferir, janela, abrir, fechar, respos
   conferir('conta nova não ganha extensão sozinha', !tem('persist:' + nova, id));
   acao('conta:remover', { id: nova });
   // Remover de vez
-  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-faz="remover"]').click()`);
+  await noPainel(`document.querySelector('[data-ext="${id}"] [data-ext-faz="remover"]').click()`);
   await espera(0.5);
   conferir('o primeiro clique em Remover só pede confirmação', cfg().extensoes.length === 1);
-  await sw.executeJavaScript(`document.querySelector('[data-ext="${id}"] [data-ext-faz="remover"]').click()`);
+  await noPainel(`document.querySelector('[data-ext="${id}"] [data-ext-faz="remover"]').click()`);
   const pasta = path.join(app.getPath('userData'), 'extensoes', 'terceiros');
   // O Windows só apaga a pasta de vez quando o Chrome solta os arquivos dela; ao abrir o programa, o que sobrou é limpo.
   conferir('o segundo remove: sai das contas e os arquivos somem', await ate(() => !cfg().extensoes.length, 5) && !tem('persist:conta2', id)
     && await ate(() => !fs.readdirSync(pasta).length, 10), fs.readdirSync(pasta).join());
   // Instalar pela tela, como o jogador faz: escolhe a pasta, lê o aviso, marca "Entendi" e instala.
-  await sw.executeJavaScript("document.querySelector('#ext-pasta').click()");
+  await noPainel("document.querySelector('#ext-pasta').click()");
   await espera(1);
-  const instalarAntes = await sw.executeJavaScript("(() => { const b = document.querySelector('#ext-instalar'); return b ? b.disabled : null; })()");
-  const telaInstalar = await sw.executeJavaScript("document.querySelector('#janela-painel').innerText");
+  const instalarAntes = await noPainel("(() => { const b = document.querySelector('#ext-instalar'); return b ? b.disabled : null; })()");
+  const telaInstalar = await noPainel("document.querySelector('#janela-painel').innerText");
   conferir('a tela de instalação mostra o aviso e só deixa instalar com o "Entendi"', instalarAntes === true && /podem dar banimento/.test(telaInstalar)
     && /inclusive o login/.test(telaInstalar), telaInstalar.replace(/\s+/g, ' ').slice(0, 160));
   await foto(janela, 'extensoes-instalar', sw);
-  await sw.executeJavaScript("document.querySelector('#ext-entendi').click(); document.querySelector('#ext-instalar').click()");
+  await noPainel("document.querySelector('#ext-entendi').click(); document.querySelector('#ext-instalar').click()");
   conferir('com o "Entendi", o botão Instalar instala', await ate(() => cfg().extensoes.length === 1, 5));
   fechar();
   srv.close();

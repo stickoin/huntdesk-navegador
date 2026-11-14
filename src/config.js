@@ -9,6 +9,11 @@ const { app, safeStorage } = require('electron');
 const JOGO_PADRAO = 'https://huntera.com.br/game';
 const MAX_POR_TELA = 4; // contas lado a lado numa tela
 const CORES = 8; // cores que o jogador pode escolher para cada conta (0 a 7)
+// Zoom de cada conta, em % (os mesmos degraus do Chrome). Ctrl + e Ctrl − andam um degrau; Ctrl 0 volta a 100.
+const ZOOMS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200];
+const zoomValido = (z) => (ZOOMS.includes(z) ? z : 100);
+// O degrau seguinte (passo 1) ou o anterior (passo -1); nas pontas, fica onde está.
+const zoomVizinho = (z, passo) => ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, ZOOMS.indexOf(zoomValido(z)) + (passo > 0 ? 1 : -1)))];
 
 function arquivo() { return path.join(app.getPath('userData'), 'config.json'); }
 
@@ -35,6 +40,7 @@ function padrao() {
     // Guarda de memória: o que fazer quando uma conta passa do limite.
     guarda: { limiteMb: LIMITE_NORMAL, acao: 'avisar', avisoTotalMb: 0, notificacoes: true },
     abrirAoIniciar: true, // false = as contas esperam o jogador apertar Ligar
+    bandeja: true, // true (de fábrica) = fechar a janela deixa o programa rodando, com um ícone ao lado do relógio
     economico: false, // modo do Chrome para computador fraco: menos memória, imagem um pouco mais simples
     visual: { lateral: true }, // lateral aberta (false = só as siglas)
     huntdesk: null, // ligação com o app do HuntDesk (ver limparLigacao); null = o jogador ainda não abriu a janela dele
@@ -145,6 +151,19 @@ function siteDe(url) {
 // A extensão do HuntDesk só lê o Huntera: só as contas dele a carregam.
 const ehHuntera = (url) => /(^|\.)huntera\.com\.br$/.test(siteDe(url));
 
+// O que o endereço da página diz, sem ler nada dentro dela: 'login' (pede para entrar), 'personagem' (o Huntera saiu do
+// jogo para a escolha de personagem), 'jogo' (no jogo) ou null (não dá para dizer). No Huntera os endereços são certos
+// (conferido em 12/11: sem login, /game e /characters vão para /login). Nos outros jogos, só um pedaço do endereço
+// chamado login, signin, entrar ou parecido conta como pedido de login.
+function oQueOEnderecoDiz(url) {
+  let u;
+  try { u = new URL(url); } catch (e) { return null; }
+  if (!/^https?:$/.test(u.protocol)) return null;
+  const partes = u.pathname.toLowerCase().split('/').filter(Boolean);
+  if (ehHuntera(url)) return partes[0] === 'login' ? 'login' : partes[0] === 'characters' ? 'personagem' : partes[0] === 'game' ? 'jogo' : null;
+  return partes.some((p) => /^(login|log-in|signin|sign-in|entrar|logon)$/.test(p)) ? 'login' : 'jogo';
+}
+
 function nomeValido(nome, reserva) {
   const n = typeof nome === 'string' ? nome.trim().slice(0, 40) : '';
   return n || reserva;
@@ -211,6 +230,7 @@ function limpar(bruto) {
     ligada: c.ligada !== false,
     mudo: c.mudo === true, // som desligado só nesta conta
     cor: Number.isInteger(c.cor) && c.cor >= 0 && c.cor < CORES ? c.cor : null, // null = a cor do número da conta
+    zoom: zoomValido(c.zoom), // tamanho da página só desta conta, em %
   }));
   cfg.proximaConta = Math.max(Number(bruto.proximaConta) || 0, ...cfg.contas.map((c) => numeroDoId(c.id, 'conta') + 1), 1);
   limparPastas(cfg, bruto);
@@ -220,6 +240,7 @@ function limpar(bruto) {
   // Arquivo sem esse campo é de quem já usava o programa antes das boas-vindas: não precisa delas.
   cfg.boasVindas = bruto.boasVindas === true;
   cfg.abrirAoIniciar = bruto.abrirAoIniciar !== false;
+  cfg.bandeja = bruto.bandeja !== false; // ligado de fábrica; só fica desligado se a pessoa desligou
   cfg.economico = bruto.economico === true;
   const v = bruto.visual || {};
   cfg.visual = { lateral: v.lateral !== false };
@@ -258,4 +279,4 @@ function salvar(cfg) {
   timer = setTimeout(() => gravarAgora(cfg), 300);
 }
 
-module.exports = { carregar, salvar, gravarAgora, enderecoValido, enderecoSeguro, siteDe, ehHuntera, nomeValido, limparGuarda, limparLigacao, limparExtensoes, abrirChave, limiteDoModo, JOGO_PADRAO, MAX_POR_TELA, CORES, LIMITE_MIN, LIMITE_MAX };
+module.exports = { carregar, salvar, gravarAgora, enderecoValido, enderecoSeguro, siteDe, ehHuntera, nomeValido, limparGuarda, limparLigacao, limparExtensoes, abrirChave, limiteDoModo, oQueOEnderecoDiz, zoomValido, zoomVizinho, JOGO_PADRAO, MAX_POR_TELA, CORES, ZOOMS, LIMITE_MIN, LIMITE_MAX };

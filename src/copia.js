@@ -43,11 +43,13 @@ function montar(cfg, versaoPrograma) {
       aberta: p.aberta,
       telas: p.telas.map((t) => t.contas.map(conta).filter(Boolean).map((c) => ({
         ref: c.id, nome: c.nome, url: c.url, cor: c.cor == null ? null : c.cor, freio: c.freio, ligada: c.ligada, mudo: !!c.mudo,
+        zoom: config.zoomValido(c.zoom),
       }))),
     })),
     opcoes: {
       guarda: { limiteMb: cfg.guarda.limiteMb, acao: cfg.guarda.acao, avisoTotalMb: cfg.guarda.avisoTotalMb, notificacoes: cfg.guarda.notificacoes },
       abrirAoIniciar: cfg.abrirAoIniciar,
+      bandeja: cfg.bandeja,
       economico: cfg.economico,
       lateral: cfg.visual.lateral,
     },
@@ -85,6 +87,7 @@ function ler(texto) {
           freio: c.freio !== false,
           ligada: c.ligada !== false,
           mudo: c.mudo === true,
+          zoom: config.zoomValido(c.zoom),
         });
       }
       // Tela com mais contas do que cabem vira mais de uma.
@@ -218,7 +221,7 @@ function somar(cfg, copia) {
         if (existentes.has(chave)) { iguais++; continue; }
         existentes.add(chave);
         const id = 'conta' + cfg.proximaConta++;
-        cfg.contas.push({ id, nome: c.nome, url: c.url, freio: c.freio, ligada: c.ligada, mudo: c.mudo, cor: c.cor });
+        cfg.contas.push({ id, nome: c.nome, url: c.url, freio: c.freio, ligada: c.ligada, mudo: c.mudo, cor: c.cor, zoom: c.zoom });
         novas.push({ id, ref: c.ref });
         ids.push(id);
       }
@@ -246,6 +249,7 @@ function somar(cfg, copia) {
   if (o) {
     cfg.guarda = config.limparGuarda({ ...cfg.guarda, ...(o.guarda || {}) }, cfg.guarda);
     if (typeof o.abrirAoIniciar === 'boolean') cfg.abrirAoIniciar = o.abrirAoIniciar;
+    if (typeof o.bandeja === 'boolean') cfg.bandeja = o.bandeja;
     if (typeof o.lateral === 'boolean') cfg.visual.lateral = o.lateral;
     if (typeof o.economico === 'boolean' && o.economico !== cfg.economico) economico = o.economico;
   }

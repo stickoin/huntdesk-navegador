@@ -23,6 +23,14 @@ Um navegador feito para quem joga jogos idle e de navegador com várias contas a
   Memória**). Se uma conta passar do limite
   que você escolheu, o programa **avisa** ou **recarrega só aquela página**, conforme a sua escolha.
 - **Freio:** conta escondida ou fora da tela gasta menos.
+- **Zoom por conta:** Ctrl + e Ctrl − aumentam ou diminuem a página só da conta em uso; Ctrl 0 volta ao normal. Também
+  pelo ⋯ da tela.
+- **Aviso de conta que precisa de você:** se uma conta cair, pedir login ou voltar para a escolha de personagem, aparece
+  uma marca na lateral (e um aviso do Windows, se a chave Avisos estiver ligada). O programa nunca recarrega nem entra
+  sozinho.
+- **Ícone ao lado do relógio (ligado de fábrica):** o ✕ esconde a janela e as contas continuam abertas. Para fechar de
+  vez, clique com o botão direito no ícone e escolha **Sair**. Para o ✕ voltar a fechar, desligue em **Menu ▴ →
+  Configurações → Geral**. No Windows 11 o ícone pode ficar escondido na setinha ^ ao lado do relógio.
 
 ## O que ele nunca faz
 
@@ -38,8 +46,8 @@ Ela cria atalhos na área de trabalho e no Iniciar.
 Enquanto o programa não tiver assinatura digital, o Windows pode mostrar "O Windows protegeu o computador". Clique em
 **Mais informações** e depois em **Executar assim mesmo**.
 
-O programa avisa quando sai uma versão nova. Ela é baixada sozinha e instalada quando você fecha o programa, ou na hora,
-se você apertar **Reiniciar agora**.
+O programa avisa quando sai uma versão nova. Ela é baixada sozinha e instalada quando você sai do programa (**Sair** no ícone ao lado do relógio, ou o ✕ se o
+ícone estiver desligado), ou na hora, se você apertar **Reiniciar agora**.
 
 ## Seus dados
 

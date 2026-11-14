@@ -100,6 +100,11 @@ function linhaConta(c) {
       ${removendo === c.id
         ? '<button class="perigo confirmar" data-faz="remover" title="A conta no jogo não é afetada">Clique de novo para remover (apaga o login guardado neste PC)</button>'
         : '<button class="perigo" data-faz="remover" title="Tira a conta do navegador e apaga o login guardado dela neste PC">Remover</button>'}</span>
+    <span class="zoom" title="Tamanho da página só desta conta. Dentro dela: Ctrl + aumenta, Ctrl − diminui e Ctrl 0 volta ao normal">
+      <span class="nota">Zoom</span>
+      <button data-faz="zoom-menos" aria-label="Diminuir o zoom"${c.zoom <= 50 ? ' disabled' : ''}>−</button>
+      <button data-faz="zoom-normal" class="${c.zoom === 100 ? '' : 'ligado'}" title="Voltar a 100%">${c.zoom}%</button>
+      <button data-faz="zoom-mais" aria-label="Aumentar o zoom"${c.zoom >= 200 ? ' disabled' : ''}>+</button></span>
     <span class="cores" title="Cor desta conta na lateral e na faixa">${Array.from({ length: CORES }, (_, i) =>
       `<button class="amostra cor${i}${cor(c) === 'cor' + i ? ' escolhida' : ''}" data-cor="${i}" aria-label="Cor ${i + 1}"></button>`).join('')}</span>
   </div>`;
@@ -184,12 +189,15 @@ function secaoGeral() {
   return grupo('Ao abrir o programa', opcao('Abrir as contas sozinho', 'Como um navegador reabrindo as abas.',
       chave(E.abrirAoIniciar, 'data-chave="abrir-ao-iniciar"', 'Abrir as contas sozinho'),
       'Desligado, cada conta espera você clicar nela. O programa nunca entra em conta nenhuma: quem faz o login é sempre você.', 'abrir'))
+    + grupo('Ao fechar a janela', opcao('Continuar rodando ao lado do relógio', 'Fechar a janela não fecha as contas.',
+      chave(E.bandeja, 'data-chave="bandeja"', 'Continuar rodando ao lado do relógio'),
+      'Ligado, o ✕ da janela esconde o HuntDesk e as contas continuam abertas. Fica um ícone ao lado do relógio do Windows (se não aparecer, veja na setinha ^): clique nele para voltar, ou clique com o botão direito e escolha <b>Sair</b> para fechar de vez. Uma versão nova já baixada só entra quando você escolhe Sair.', 'bandeja'))
     + grupo('Desempenho', opcao('Modo economia', 'Menos memória, imagem um pouco mais simples.',
       chave(E.economico.agora, 'data-chave="economia"', 'Modo economia'),
       'Para computador com pouca memória. Ao trocar, o HuntDesk fecha e abre de novo; as contas recarregam e os logins ficam guardados. É o mesmo botão <b>Economia</b> da barra de baixo.', 'economia'))
     + grupo('Avisos', opcao('Avisar também no Windows', 'Útil com o programa minimizado.',
       chave(E.guarda.notificacoes, 'data-chave="notificacoes"', 'Avisar também no Windows'),
-      'Quando uma conta passa do limite de memória (ou é recarregada por isso), aparece um aviso do Windows no canto da tela, além da marca na conta.', 'avisos'));
+      'Aparece um aviso do Windows no canto da tela, além da marca na conta, quando uma conta: <b>caiu</b>; <b>pediu login</b> de novo ou <b>saiu do jogo</b> para a escolha de personagem; ou <b>passou do limite de memória</b>. O HuntDesk só avisa: nunca recarrega, entra ou volta ao jogo por causa disso.', 'avisos'));
 }
 
 function secaoContas() {
@@ -652,6 +660,9 @@ document.addEventListener('click', (ev) => {
       removendo = null;
       if (b.dataset.cor) return acao('conta:cor', { id: c.id, cor: Number(b.dataset.cor) });
       if (f === 'recarregar') return acao('conta:recarregar', { id: c.id });
+      if (f === 'zoom-menos') return acao('conta:zoom', { id: c.id, passo: -1 });
+      if (f === 'zoom-mais') return acao('conta:zoom', { id: c.id, passo: 1 });
+      if (f === 'zoom-normal') return acao('conta:zoom', { id: c.id, zoom: 100 });
       if (f === 'som') return acao('conta:som', { id: c.id, ligado: c.mudo });
       if (f === 'freio') return acao('conta:freio', { id: c.id, ligado: !c.freio });
       if (f === 'desligar') return acao('conta:desligar', { id: c.id });
@@ -705,6 +716,7 @@ function cliqueConfig(b) {
   }
   const ch = b.dataset.chave;
   if (ch === 'abrir-ao-iniciar') return acao('config:abrir-ao-iniciar', { ligado: !E.abrirAoIniciar });
+  if (ch === 'bandeja') return acao('config:bandeja', { ligado: !E.bandeja });
   if (ch === 'notificacoes') return acao('guarda:config', { notificacoes: !E.guarda.notificacoes });
   if (ch === 'economia') {
     const ligar = !E.economico.agora;

@@ -15,8 +15,8 @@ let esperandoPasta = 0; // "+ Nova pasta": quantas pastas havia, para abrir o me
 let arrastando = null; // { tipo: 'tela' | 'pasta', id } enquanto o jogador arrasta uma linha da lateral
 let ultimoClique = {}; // { tela, quando }: o clique de antes, para reconhecer dois cliques seguidos
 
-// Contas que precisam de atenção: caíram, travaram, não abriram ou passaram do limite de memória.
-const problemas = () => E.contas.filter((c) => c.ligada && (alerta(c.id) || ['caiu', 'travada', 'erro'].includes(c.estado)));
+// Contas que precisam de atenção: caíram, travaram, não abriram, pediram login ou passaram do limite de memória.
+const problemas = () => E.contas.filter((c) => c.ligada && (alerta(c.id) || c.pede || ['caiu', 'travada', 'erro'].includes(c.estado)));
 
 // ---------- lateral: pastas e telas ----------
 
@@ -26,6 +26,7 @@ function textoTela(cs) {
   const site = sites.length > 1 ? `${sites.length} sites` : esc(sites[0] || '');
   const ligadas = cs.filter((c) => c.ligada);
   const como = ligadas.some((c) => c.estado === 'caiu') ? '<span class="ruim">uma conta caiu</span>'
+    : ligadas.some((c) => c.pede) ? `<span class="atencao">${esc(PEDIDOS[ligadas.find((c) => c.pede).pede])}</span>`
     : ligadas.some((c) => alerta(c.id)) ? '<span class="ruim">passou do limite</span>'
       : !ligadas.length ? 'desligada' : gb(ligadas.reduce((s, c) => s + (uso(c.id).ram || 0), 0));
   return site ? `${site} · ${como}` : como;
@@ -110,11 +111,12 @@ function desenharCelulas() {
     const meio = a
       ? `<span class="aviso ${a.recarregada ? 'atencao' : 'ruim'}" title="${esc(textoAlerta(a))}">${esc(textoAlerta(a))}</span>
          <button data-dispensar="${esc(c.id)}" class="vermelho" title="Tira o aviso">Dispensar</button>`
+      : c.pede ? `<span class="estado travada">${esc(PEDIDOS[c.pede])}</span>`
       : `<span class="estado ${c.estado}">${ESTADOS[c.estado] || esc(c.estado)}</span>`;
     const classes = ['celula', E.foco === c.id ? 'foco' : '', a ? (a.recarregada ? 'recarregada' : 'com-alerta') : '', caiu ? 'caiu' : ''].join(' ');
     return `<div class="${classes}" data-celula="${esc(c.id)}">
       <div class="faixa">
-        ${ini(c, 'sem', 'mini')}<b>${esc(c.nome)}</b><span class="site">${esc(c.site)}</span>${meio}
+        ${ini(c, 'sem', 'mini')}<b>${esc(c.nome)}</b><span class="site">${esc(c.site)}</span>${c.zoom !== 100 ? `<span class="site" title="Zoom desta conta (Ctrl 0 dentro dela volta a 100%)">${c.zoom}%</span>` : ''}${meio}
         <span class="espaco"></span>
         <button data-conta="${esc(c.id)}" data-faz="recarregar" title="Recarrega só esta conta (F5 dentro dela faz o mesmo)">Recarregar</button>
       </div>

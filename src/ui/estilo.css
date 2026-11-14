@@ -150,6 +150,10 @@ body.camada { background: var(--bg-2); }
 .linha-conta .botoes button { font-size: 11px; padding: 2px 7px; }
 .linha-conta .botoes button.confirmar { border-color: var(--danger); color: var(--danger); white-space: normal; text-align: left; }
 .linha-conta .cores { grid-column: 1 / -1; display: flex; gap: 5px; }
+.linha-conta .zoom { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; }
+.linha-conta .zoom .nota { margin-right: 4px; }
+.linha-conta .zoom button { font-size: 11px; padding: 2px 8px; min-width: 26px; }
+.linha-conta .zoom button[data-faz="zoom-normal"] { min-width: 52px; font-variant-numeric: tabular-nums; }
 .amostra { width: 18px; height: 18px; padding: 0; border-radius: 5px; border: 2px solid transparent; }
 .amostra:hover { border-color: var(--muted); }
 .amostra.escolhida { border-color: var(--text); }

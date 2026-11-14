@@ -13,6 +13,8 @@ const QUEDAS = {
   'launch-failed': 'O Chrome não conseguiu abrir a página.',
   'integrity-failure': 'O Windows bloqueou a página numa verificação de segurança.',
 };
+// Conta que precisa do jogador (pelo endereço da página).
+const PEDIDOS = { login: 'pediu login', personagem: 'saiu para a escolha de personagem' };
 const motivoQueda = (m) => QUEDAS[m] || 'O Chrome fechou a página sem dizer o motivo.';
 const CORES = 8; // classes .cor0 a .cor7 no estilo.css; o jogador escolhe uma para cada conta
 const $ = (sel) => document.querySelector(sel);
@@ -68,6 +70,7 @@ const ini = (c, bola = '', extra = '') => `<span class="ini ${cor(c)} ${bola} ${
 function estadoDe(c, a) {
   if (!c.ligada) return { texto: 'desligada', classe: '', bola: 'off' };
   if (c.estado === 'caiu') return { texto: 'caiu', classe: 'ruim', bola: 'ruim' };
+  if (c.pede) return { texto: PEDIDOS[c.pede] || c.pede, classe: 'atencao', bola: 'atencao' };
   if (a) return a.recarregada ? { texto: 'recarregada sozinha', classe: 'atencao', bola: 'atencao' } : { texto: 'passou do limite', classe: 'ruim', bola: 'ruim' };
   if (c.estado !== 'ok') return { texto: ESTADOS[c.estado] || c.estado, classe: 'atencao', bola: 'atencao' };
   return c.naTela ? { texto: 'na tela', classe: 'bom', bola: '' } : { texto: 'fora da tela', classe: '', bola: '' };

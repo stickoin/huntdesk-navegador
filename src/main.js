@@ -6,7 +6,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, WebContentsView, Menu, Notification, dialog, ipcMain, nativeTheme, net, session, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Notification, Tray, dialog, ipcMain, nativeImage, nativeTheme, net, session, shell } = require('electron');
 const { Medidor, apagarPastaAntiga } = require('./medidor');
 const quedas = require('./quedas');
 const { Guarda } = require('./guarda');
@@ -40,9 +40,12 @@ if (AUTOTESTE) app.setPath('userData', path.join(app.getPath('temp'), 'huntdesk-
 else app.setPath('userData', path.join(app.getPath('appData'), 'HuntDesk Navegador'));
 
 // Experimento (só pela linha de comando): --experimento-alivio alivia as contas 1 e 2 a cada 5 min e deixa a 3 e a 4
-// como comparação; --economico liga o modo econômico mesmo desligado nas Configurações; --diagnostico anota o que cada
-// página tem (ver diagnosticar).
-const EXPERIMENTO_ALIVIO = ARGS.includes('--experimento-alivio');
+// como comparação; --experimento-alivio=240 espera 240 min (as contas crescerem) e alivia a 1 e a 2 só duas vezes, com
+// 30 min entre uma e outra; --economico liga o modo econômico mesmo desligado nas Configurações; --diagnostico anota o
+// que cada página tem (ver diagnosticar).
+const ARG_ALIVIO = ARGS.find((a) => a === '--experimento-alivio' || a.startsWith('--experimento-alivio='));
+const EXPERIMENTO_ALIVIO = !!ARG_ALIVIO;
+const ALIVIO_DEPOIS = Number((ARG_ALIVIO || '').split('=')[1]) || 0; // minutos; 0 = a cada 5 min desde o começo
 // Experimento: --quadros=30 faz o jogo desenhar no máximo 30 quadros por segundo (ver quadros.js). A opção do Chrome
 // limit-fps não serve: no Electron ela não limita as páginas.
 const QUADROS = Number((ARGS.find((a) => a.startsWith('--quadros=')) || '').split('=')[1]) || 0;
@@ -75,7 +78,7 @@ const APP_HUNTDESK = 'https://app.huntdesk.com.br/';
 const MARCA_APP = 'HuntDeskNavegador/' + app.getVersion();
 let origemApp = new URL(APP_HUNTDESK).origin; // de onde o site pode pedir para ligar a leitura (o autoteste troca por um local)
 let ligacao = null; // conexão em um passo (ver ligacao.js)
-const respostasTeste = { perguntas: [], aceitar: false, arquivoCopia: null, pastaExtensao: null }; // no autoteste, a pergunta ao jogador (e o arquivo da cópia) vêm daqui
+const respostasTeste = { perguntas: [], aceitar: false, arquivoCopia: null, pastaExtensao: null, avisos: [] }; // no autoteste, a pergunta ao jogador (e o arquivo da cópia) vêm daqui
 const avisosAbertos = new Set(); // notificações do Windows na tela (sem referência, o Windows as perde)
 let area = null; // espaço das contas (entre a lateral e a barra de baixo), informado pela própria barra
 let foco = null; // última conta clicada: o F5 recarrega só ela
@@ -88,6 +91,9 @@ let alturaSobre = 0; // altura que a janelinha pediu, conforme o que ela mostra
 let timerSobre = null;
 let abertoEm = 0;
 let saindo = false;
+let bandeja = null; // ícone ao lado do relógio (só com a opção ligada em Configurações → Geral)
+let menuBandeja = null;
+let avisouBandeja = false; // o aviso "continua aberto" aparece uma vez por abertura do programa
 const series = new Map(); // id da conta → últimas 30 medições [MB, % processador], para os gráficos da janelinha
 const historicos = new Map(); // id da conta → últimos eventos [quando, nota], para o histórico da janelinha
 
@@ -145,11 +151,15 @@ function ligarConta(c) {
     j.webContents.on('did-navigate', titulo);
   });
   wc.on('did-navigate', (e, url) => {
+    porZoom(c.id); // o Chrome guarda o zoom por site: ao trocar de site, a conta voltaria a 100%
+    vigiarEndereco(c.id, url);
     const site = config.siteDe(url);
     if (site && site !== v.site) { v.site = site; enviarEstado(); }
   });
+  // O Huntera troca de página sem recarregar (só o endereço muda).
+  wc.on('did-navigate-in-page', (e, url, principal) => { if (principal) vigiarEndereco(c.id, url); });
   wc.on('did-start-loading', () => mudarEstado(c.id, 'carregando'));
-  wc.on('did-finish-load', () => { mudarEstado(c.id, 'ok'); medidor.prepararPagina(wc); });
+  wc.on('did-finish-load', () => { mudarEstado(c.id, 'ok'); medidor.prepararPagina(wc); porZoom(c.id); });
   wc.on('did-fail-load', (e, codigo, descricao, url, principal) => { if (principal && codigo !== -3) mudarEstado(c.id, 'erro', descricao); });
   wc.on('unresponsive', () => mudarEstado(c.id, 'travada'));
   wc.on('responsive', () => mudarEstado(c.id, 'ok'));
@@ -160,6 +170,8 @@ function ligarConta(c) {
     if (saindo || vivas.get(c.id) !== v) return;
     const uso = medidor.ultima && medidor.ultima.contas[c.id];
     quedas.anotar({ conta: c.id, motivo: d.reason, codigo: d.exitCode, ram: uso && uso.ram, economico: ECONOMICO });
+    // Só avisa: o programa nunca recarrega a conta por causa disso (quem decide é o jogador).
+    notificar(`A página da ${c.nome} caiu`, 'O HuntDesk não recarrega sozinho. Clique para ver a conta.', c.id);
   });
   wc.on('focus', () => { if (foco !== c.id) { foco = c.id; enviarEstado(); } });
   wc.on('before-input-event', (e, input) => atalho(e, input, c.id));
@@ -173,6 +185,36 @@ function ligarConta(c) {
   if (TESTE) wc.loadFile(PAGINA_TESTE, { query: { conta: c.nome, vazar: CENARIO === 'guarda' ? 'sempre' : 'desenho' } });
   else prontas.then(() => { if (!wc.isDestroyed()) wc.loadURL(c.url); });
   medidor.evento(c.id, 'ligada');
+}
+
+// O zoom guardado da conta vale para a página dela (cada conta tem o próprio cofre, então uma não muda a outra).
+function porZoom(id) {
+  const v = vivas.get(id);
+  const c = conta(id);
+  if (!v || !c || v.view.webContents.isDestroyed()) return;
+  const fator = config.zoomValido(c.zoom) / 100;
+  if (Math.abs(v.view.webContents.getZoomFactor() - fator) > 0.001) v.view.webContents.setZoomFactor(fator);
+}
+
+// Conta que pediu login ou saiu do jogo: marca na lateral e, se ela estava no jogo, avisa no Windows. Olha só o endereço
+// da página; nunca lê nem mexe no jogo, e nunca entra nem volta sozinho (quem faz isso é sempre o jogador).
+const PEDIDOS = { login: 'pediu login', personagem: 'saiu para a escolha de personagem' };
+function vigiarEndereco(id, url) {
+  const v = vivas.get(id);
+  const c = conta(id);
+  if (!v || !c) return;
+  const diz = config.oQueOEnderecoDiz(url);
+  if (diz === 'jogo') v.estevesNoJogo = true;
+  const pede = diz === 'login' || diz === 'personagem' ? diz : null;
+  if (pede === v.pede) return;
+  v.pede = pede;
+  if (pede) {
+    medidor.evento(id, PEDIDOS[pede]);
+    // Abrindo já na tela de login (o programa acabou de abrir) não avisa no Windows: a marca na lateral basta.
+    if (v.estevesNoJogo) notificar(`A ${c.nome} ${PEDIDOS[pede]}`, 'O HuntDesk não entra sozinho. Clique para ver a conta.', id);
+    v.estevesNoJogo = false;
+  }
+  enviarEstado();
 }
 
 function desligarConta(id) {
@@ -341,6 +383,12 @@ function atalho(e, input, id) {
     const alvo = id || foco;
     if (alvo === 'app') appVista.webContents.reload();
     else if (alvo) acao('conta:recarregar', { id: alvo });
+  } else if (ctrl && ['+', '=', '-', '_', '0'].includes(tecla)) {
+    // Ctrl + e Ctrl − mudam o tamanho só da conta em que você está; Ctrl 0 volta ao normal.
+    const alvo = id || foco;
+    if (!alvo || alvo === 'app' || !vivas.has(alvo)) return;
+    e.preventDefault();
+    acao('conta:zoom', tecla === '0' ? { id: alvo, zoom: 100 } : { id: alvo, passo: tecla === '-' || tecla === '_' ? -1 : 1 });
   } else if (ctrl && /^[1-9]$/.test(tecla)) {
     // Ctrl+1, Ctrl+2…: vai para a tela daquele número na lateral.
     const alvo = ordemTelas()[Number(tecla) - 1];
@@ -378,7 +426,7 @@ function novaConta({ nome, url, pasta }) {
   if (url && !config.enderecoSeguro(url)) return;
   // O id segue o contador geral (ele dá nome ao cofre do login e nunca se repete); o nome é contado dentro da pasta.
   const id = 'conta' + cfg.proximaConta++;
-  const c = { id, nome: null, url: url || config.JOGO_PADRAO, freio: true, ligada: true };
+  const c = { id, nome: null, url: url || config.JOGO_PADRAO, freio: true, ligada: true, zoom: 100 };
   const site = config.siteDe(c.url);
   const sitesDa = (q) => new Set(q.telas.flatMap((t) => t.contas).map((x) => config.siteDe(conta(x).url)));
   let p = pastaDe(pasta) || pastaDe(cfg.atual.pasta) || cfg.pastas[0];
@@ -706,6 +754,7 @@ async function fazerCopia(tipo, dados) {
       }
       medidor.evento('programa', `configurações importadas: ${r.novas.length} contas novas (${comLogin} com login), ${r.iguais} já existiam`);
       config.salvar(cfg);
+      ajustarBandeja();
       arrumar();
       // O modo econômico do arquivo só vale com o programa reaberto (como no botão Economia).
       if (r.economico !== null) setTimeout(() => acao('config:economico', { ligado: r.economico }), TESTE ? 0 : 2500);
@@ -859,6 +908,13 @@ const ACOES = {
     const v = vivas.get(id);
     if (v) v.view.webContents.setAudioMuted(c.mudo);
   },
+  // Zoom só desta conta: um degrau para cima ou para baixo (passo), ou um valor da lista (zoom).
+  'conta:zoom': ({ id, passo, zoom }) => {
+    const c = conta(id);
+    if (!c) return;
+    c.zoom = passo ? config.zoomVizinho(c.zoom, passo) : config.zoomValido(zoom);
+    porZoom(id);
+  },
   'visual:lateral': () => { cfg.visual.lateral = !cfg.visual.lateral; },
   'janela:cheia': () => win.setFullScreen(!win.isFullScreen()),
   'conta:aliviar': ({ id }) => aliviar(id, 'pelo jogador'),
@@ -890,6 +946,7 @@ const ACOES = {
   },
   'guarda:dispensar': ({ id }) => guarda.dispensar(id),
   'config:abrir-ao-iniciar': ({ ligado }) => { cfg.abrirAoIniciar = !!ligado; },
+  'config:bandeja': ({ ligado }) => { cfg.bandeja = !!ligado; ajustarBandeja(); },
   'config:economico': ({ ligado }) => {
     if (cfg.economico === !!ligado && ECONOMICO === !!ligado) return;
     if (cfg.economico !== !!ligado) cfg.guarda.limiteMb = config.limiteDoModo(cfg.guarda.limiteMb, !!ligado);
@@ -920,8 +977,8 @@ function enviarEstado() {
     inicio: medidor.inicio,
     contas: cfg.contas.map((c) => {
       const v = vivas.get(c.id);
-      return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, cor: c.cor, ligada: !!v, estado: v ? v.estado : 'desligada',
-        naTela: !!(v && v.presa), desde: v ? v.desde : null, queda: v ? v.queda : null, site: v ? v.site : config.siteDe(c.url) };
+      return { id: c.id, nome: c.nome, url: c.url, freio: c.freio, mudo: !!c.mudo, cor: c.cor, zoom: config.zoomValido(c.zoom), ligada: !!v, estado: v ? v.estado : 'desligada',
+        naTela: !!(v && v.presa), desde: v ? v.desde : null, queda: v ? v.queda : null, pede: v ? v.pede || null : null, site: v ? v.site : config.siteDe(c.url) };
     }),
     pastas: cfg.pastas,
     atual: cfg.atual,
@@ -935,6 +992,7 @@ function enviarEstado() {
     atualizacao: atualizador ? atualizador.estado : null,
     alertas: guarda.resumo(),
     abrirAoIniciar: cfg.abrirAoIniciar,
+    bandeja: cfg.bandeja,
     economico: { escolhido: cfg.economico, agora: ECONOMICO },
     visual: cfg.visual,
     faixas: celulas.length > 1,
@@ -964,7 +1022,9 @@ function guardarSerie(amostra) {
 
 // Aviso do Windows; clicar nele traz o programa para a frente com a conta na tela.
 function notificar(titulo, texto, id) {
-  if (!cfg.guarda.notificacoes || !Notification.isSupported()) return;
+  if (!cfg.guarda.notificacoes) return;
+  if (TESTE) { respostasTeste.avisos.push(titulo); return; } // nos testes, nada aparece no canto da tela
+  if (!Notification.isSupported()) return;
   const n = new Notification({ title: titulo, body: texto });
   avisosAbertos.add(n);
   const soltar = () => avisosAbertos.delete(n);
@@ -972,11 +1032,40 @@ function notificar(titulo, texto, id) {
   n.on('click', () => {
     soltar();
     if (!win) return;
+    if (!win.isVisible()) win.show();
     if (win.isMinimized()) win.restore();
     win.focus();
     if (id && conta(id)) acao('conta:mostrar', { id });
   });
   n.show();
+}
+
+// ---------- ícone ao lado do relógio ----------
+
+function mostrarJanela() {
+  if (!win || win.isDestroyed()) return;
+  if (!win.isVisible()) { if (TESTE) win.showInactive(); else win.show(); }
+  if (win.isMinimized()) win.restore();
+  if (!TESTE) win.focus();
+}
+
+// Com a opção ligada o ícone fica lá o tempo todo, para o jogador saber onde o programa está; desligada, some.
+function ajustarBandeja() {
+  if (cfg.bandeja && !bandeja) {
+    const grande = nativeImage.createFromPath(path.join(__dirname, 'ui', 'icone.png'));
+    const img = nativeImage.createEmpty();
+    for (const escala of [1, 2]) img.addRepresentation({ scaleFactor: escala, buffer: grande.resize({ width: 16 * escala, height: 16 * escala, quality: 'best' }).toPNG() });
+    bandeja = new Tray(img);
+    bandeja.setToolTip('HuntDesk' + (TESTE ? ' (teste)' : ''));
+    menuBandeja = Menu.buildFromTemplate([{ label: 'Abrir o HuntDesk', click: mostrarJanela }, { type: 'separator' }, { label: 'Sair', click: () => app.quit() }]);
+    bandeja.setContextMenu(menuBandeja);
+    bandeja.on('click', mostrarJanela);
+  } else if (!cfg.bandeja && bandeja) {
+    bandeja.destroy();
+    bandeja = null;
+    menuBandeja = null;
+    mostrarJanela(); // a janela escondida não pode ficar sem ícone para voltar
+  }
 }
 
 function guardarJanela() {
@@ -1012,7 +1101,23 @@ function criarJanela() {
   // (podem pedir confirmação, que tira o foco deles).
   sobre.on('blur', () => { if (sobreAberto && sobreAberto.tipo !== 'painel') fecharSobre(); });
   sobre.on('close', (e) => { if (!saindo) { e.preventDefault(); fecharSobre(); } }); // Alt+F4 só esconde
-  win.on('close', () => { saindo = true; });
+  // Com o ícone ao lado do relógio, o ✕ só esconde a janela: as contas continuam abertas. "Sair" (no menu do ícone) e o
+  // desligamento do Windows fecham de vez (o before-quit marca `saindo`).
+  win.on('close', (e) => {
+    if (cfg.bandeja && bandeja && !saindo) {
+      e.preventDefault();
+      fecharSobre();
+      win.hide();
+      medidor.evento('janela', 'escondida ao lado do relógio');
+      if (!avisouBandeja) {
+        avisouBandeja = true;
+        notificar('O HuntDesk continua aberto', 'As contas seguem rodando. Para voltar, clique no ícone ao lado do relógio (pode estar na setinha ^). Para fechar de vez: botão direito no ícone → Sair.');
+      }
+      return;
+    }
+    saindo = true;
+  });
+  win.on('session-end', () => { saindo = true; });
   // Clique na janela principal (barra ou jogo) fecha a janelinha; logo depois de abrir não (o Menu ▴ do Windows, ao
   // fechar, devolve o foco à principal).
   win.on('focus', () => { if (Date.now() - abertoEm > 400) fecharSobre(); });
@@ -1079,16 +1184,19 @@ function criarJanela() {
   win.on('restore', () => medidor.evento('janela', 'restaurada'));
   win.webContents.on('did-finish-load', enviarEstado);
   win.webContents.on('before-input-event', (e, input) => atalho(e, input, null));
+  ajustarBandeja();
   atualizador = new Atualizador({ ativo: !TESTE, aoMudar: enviarEstado, evento: (nota) => medidor.evento('programa', nota) });
   atualizador.comecar();
   medidor.comecar();
   medidor.evento('programa', `modo econômico ${ECONOMICO ? 'ligado' : 'desligado'}; quadros ${QUADROS ? 'limitados a ' + QUADROS + '/s' : 'sem limite'}${SEM_EXTENSAO.size ? '; sem a extensão: ' + [...SEM_EXTENSAO].join(', ') : ''}`);
   if (ARGS.includes('--diagnostico')) { const d = () => cfg.contas.forEach((c) => diagnosticar(c.id)); setTimeout(d, 60000); setInterval(d, 5 * 60000); }
-  if (EXPERIMENTO_ALIVIO) setInterval(() => ['conta1', 'conta2'].forEach((id) => aliviar(id, 'pelo experimento')), 5 * 60000);
+  const aliviarDupla = () => ['conta1', 'conta2'].forEach((id) => aliviar(id, 'pelo experimento'));
+  if (EXPERIMENTO_ALIVIO && !ALIVIO_DEPOIS) setInterval(aliviarDupla, 5 * 60000);
+  if (ALIVIO_DEPOIS) [0, 30].forEach((mais) => setTimeout(aliviarDupla, (ALIVIO_DEPOIS + mais) * 60000));
   if (AUTOTESTE) {
     require('./autoteste').rodar(CENARIO, { acao, medidor, janela: win, abrir: abrirSobre, fechar: fecharSobre, abrirBoasVindas, marcaApp: MARCA_APP,
       respostasTeste, origemDoApp: (o) => { origemApp = o; }, copia: fazerCopia, extensoes: fazerExtensoes,
-      estado: () => ({ cfg, celulas, vivas, alertas: guarda.resumo(), sobre, app: appVista, mostrandoApp, boasVindas: janelaBoasVindas }), sair: () => app.quit() });
+      estado: () => ({ cfg, celulas, vivas, bandeja, menuBandeja, alertas: guarda.resumo(), sobre, app: appVista, mostrandoApp, boasVindas: janelaBoasVindas }), sair: () => app.quit() });
   }
 }
 
@@ -1156,7 +1264,7 @@ ipcMain.handle('extensoes', (e, tipo, dados) => (daBarra(e) ? fazerExtensoes(tip
 if (!app.requestSingleInstanceLock()) {
   app.quit(); // duas cópias abertas disputariam o mesmo cofre de login
 } else {
-  app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
+  app.on('second-instance', mostrarJanela); // abrir o atalho de novo traz a janela (mesmo escondida ao lado do relógio)
   app.setAppUserModelId('br.com.huntdesk.navegador'); // o Windows mostra os avisos com o nome do programa
   app.whenReady().then(criarJanela);
   app.on('before-quit', () => {
